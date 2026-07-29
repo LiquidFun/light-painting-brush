@@ -25,8 +25,17 @@ export function PowerPanel({
   const scaleToFit = () => {
     const scale = findBrightnessScale(field, POWER_BUDGET_MA)
     if (scale >= 1) return
+    // Every layer has to come down together, or the mix between them changes.
+    // Keyframes carry their own brightness; a pattern or image only has opacity.
     onPatch({
-      keyframes: project.keyframes.map((k) => ({ ...k, brightness: k.brightness * scale })),
+      layers: project.layers.map((l) =>
+        l.kind === 'keyframes'
+          ? {
+              ...l,
+              keyframes: l.keyframes.map((k) => ({ ...k, brightness: k.brightness * scale })),
+            }
+          : { ...l, opacity: l.opacity * scale },
+      ),
     })
   }
 

@@ -32,6 +32,11 @@ type Drag =
 
 export type CanvasProps = {
   project: Project
+  /**
+   * The keyframes of the active layer. Only these get handles: showing every
+   * layer's handles at once would make a stack of them unusable.
+   */
+  keyframes: Keyframe[]
   field: Field
   playheadMs: number
   selectedId: string | null
@@ -48,6 +53,7 @@ export type CanvasProps = {
 export function FieldCanvas(props: CanvasProps) {
   const {
     project,
+    keyframes,
     field,
     playheadMs,
     selectedId,
@@ -159,10 +165,11 @@ export function FieldCanvas(props: CanvasProps) {
       geom,
       bitmap,
       project,
+      keyframes,
       playheadMs,
       selectedId,
     })
-  }, [size, geom, bitmap, project, playheadMs, selectedId])
+  }, [size, geom, bitmap, project, keyframes, playheadMs, selectedId])
 
   // --- hit testing ----------------------------------------------------------
 
@@ -173,8 +180,8 @@ export function FieldCanvas(props: CanvasProps) {
       let best: Keyframe | null = null
       let bestDist = HANDLE_HIT
       // Later keyframes sit on top, so walk backwards.
-      for (let i = project.keyframes.length - 1; i >= 0; i--) {
-        const k = project.keyframes[i]
+      for (let i = keyframes.length - 1; i >= 0; i--) {
+        const k = keyframes[i]
         const hx = uToX(k.led / uDiv)
         const hy = vToY(k.timeMs / project.durationMs)
         let d: number
@@ -199,7 +206,7 @@ export function FieldCanvas(props: CanvasProps) {
       }
       return best
     },
-    [geom, project],
+    [geom, project, keyframes],
   )
 
   const localPoint = (e: PointerEvent | React.PointerEvent) => {
@@ -440,6 +447,7 @@ type DrawArgs = {
   }
   bitmap: HTMLCanvasElement
   project: Project
+  keyframes: Keyframe[]
   playheadMs: number
   selectedId: string | null
 }
@@ -453,7 +461,7 @@ function pickStep(steps: number[], pxPerUnit: number, minPx: number): number {
 }
 
 function draw(ctx: CanvasRenderingContext2D, args: DrawArgs) {
-  const { size, geom, bitmap, project, playheadMs, selectedId } = args
+  const { size, geom, bitmap, project, keyframes, playheadMs, selectedId } = args
   const { area, uToX, vToY } = geom
   const css = getComputedStyle(document.documentElement)
   const fg = css.getPropertyValue('--chrome-fg').trim() || '#e6e9ec'
@@ -490,7 +498,7 @@ function draw(ctx: CanvasRenderingContext2D, args: DrawArgs) {
   )
 
   // --- keyframe geometry inside the image ---
-  for (const k of project.keyframes) {
+  for (const k of keyframes) {
     const selected = k.id === selectedId
     ctx.lineWidth = selected ? 2 : 1
     ctx.setLineDash(selected ? [] : [4, 4])
@@ -571,7 +579,7 @@ function draw(ctx: CanvasRenderingContext2D, args: DrawArgs) {
   }
 
   // --- gutter handles ---
-  for (const k of project.keyframes) {
+  for (const k of keyframes) {
     const selected = k.id === selectedId
     ctx.fillStyle = selected ? fg : mute
     ctx.strokeStyle = bg

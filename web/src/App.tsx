@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { useDevice } from './ble/useDevice'
 import { frameCount } from './model/project'
 import { loadPrefs, savePrefs } from './model/storage'
 import { useEditor } from './state/useEditor'
+import { useTransport } from './state/useTransport'
 import { useField } from './state/useField'
 import { usePlayback } from './state/usePlayback'
 import { buildPayload } from './render/payload'
-import { BluetoothNotice } from './ui/BluetoothNotice'
 import { ContextMenu } from './ui/ContextMenu'
 import type { ContextTarget } from './ui/ContextMenu'
 import { DevicePanel } from './ui/DevicePanel'
 import { FieldCanvas } from './ui/FieldCanvas'
 import { Header } from './ui/Header'
 import { KeyframeEditor } from './ui/KeyframeEditor'
+import { LayerPanel } from './ui/LayerPanel'
 import { PowerPanel } from './ui/PowerPanel'
 import { ProjectPanel } from './ui/ProjectPanel'
 import { Sheet } from './ui/Sheet'
@@ -23,13 +23,13 @@ import { ToolSelector } from './ui/ToolSelector'
 import { Transport } from './ui/Transport'
 
 export default function App() {
+  const [prefs, setPrefs] = useState(loadPrefs)
   const editor = useEditor()
-  const device = useDevice()
+  const transport = useTransport(prefs.transport)
   const { project } = editor
   const field = useField(project)
   const playhead = usePlayback(project.durationMs, project.fps)
 
-  const [prefs, setPrefs] = useState(loadPrefs)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetTab, setSheetTab] = useState<SheetTab>('project')
   const [menu, setMenu] = useState<ContextTarget | null>(null)
@@ -48,7 +48,7 @@ export default function App() {
 
   const upload = useCallback(async () => {
     const payload = buildPayload(field)
-    await device.upload(payload, {
+    await transport.upload(payload, {
       ledCount: project.ledCount,
       frameCount: field.height,
       fps: project.fps,
@@ -57,39 +57,34 @@ export default function App() {
       pingPong: project.playback.pingPong,
       autoPlay,
     })
-  }, [autoPlay, device, field, project])
+  }, [autoPlay, transport, field, project])
 
   const selected = editor.selected
+  const keyframes = editor.drawLayer?.keyframes ?? []
   const menuKeyframe = useMemo(
-    () => (menu ? project.keyframes.find((k) => k.id === menu.id) ?? null : null),
-    [menu, project.keyframes],
+    () => (menu ? keyframes.find((k) => k.id === menu.id) ?? null : null),
+    [menu, keyframes],
   )
-
-  const showNotice = !device.supported && !prefs.bluetoothNoticeDismissed
 
   return (
     <div className="flex h-full flex-col lg:flex-row">
       <div className="flex min-h-0 flex-1 flex-col">
         <Header
           project={project}
-          device={device}
+          transport={transport}
           canUndo={editor.canUndo}
           canRedo={editor.canRedo}
           onUndo={editor.undo}
           onRedo={editor.redo}
           onOpenProject={() => openSheet('project')}
+          onOpenLayers={() => openSheet('layers')}
           onOpenDevice={() => openSheet('device')}
         />
-
-        {showNotice && (
-          <BluetoothNotice
-            onDismiss={() => setPrefs((p) => ({ ...p, bluetoothNoticeDismissed: true }))}
-          />
-        )}
 
         <div className="min-h-0 flex-1">
           <FieldCanvas
             project={project}
+            keyframes={keyframes}
             field={field}
             playheadMs={playhead.timeMs}
             selectedId={editor.selectedId}
@@ -146,14 +141,27 @@ export default function App() {
             </p>
           ))}
 
+        {sheetTab === 'layers' && (
+          <LayerPanel
+            project={project}
+            activeLayerId={editor.activeLayerId}
+            onSelect={editor.setActiveLayer}
+            onAdd={editor.addLayer}
+            onUpdate={editor.updateLayer}
+            onRemove={editor.removeLayer}
+            onMove={editor.moveLayer}
+          />
+        )}
+
         {sheetTab === 'device' && (
           <DevicePanel
-            device={device}
+            transport={transport}
             project={project}
             autoPlay={autoPlay}
             onAutoPlayChange={setAutoPlay}
             onPatchProject={editor.patchProject}
             onUpload={() => void upload()}
+            onTransportKind={(kind) => setPrefs((p) => ({ ...p, transport: kind }))}
           />
         )}
 
@@ -162,7 +170,8 @@ export default function App() {
             <ProjectPanel
               project={project}
               library={editor.library}
-              maxAnimationBytes={device.maxAnimationBytes}
+              librarySync={editor.librarySync}
+              maxAnimationBytes={transport.maxAnimationBytes}
               night={prefs.night}
               onNightChange={(night) => setPrefs((p) => ({ ...p, night }))}
               onPatch={editor.patchProject}

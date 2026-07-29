@@ -6,21 +6,23 @@
 // behind this class; see isSupported().
 
 import {
+  DeviceState,
+  ErrorCode,
+  crc32,
+  errorMessage,
+} from '../transport/protocol'
+import {
   CHUNK_SIZE,
   CONTROL_UUID,
   DATA_UUID,
   DEVICE_NAME,
-  DeviceState,
-  ErrorCode,
   MIN_CHUNK_SIZE,
   Op,
   SERVICE_UUID,
   STATUS_UUID,
   controlFrame,
-  crc32,
   decodeStatus,
   encodeHeader,
-  errorMessage,
 } from './protocol'
 import type { Status, UploadHeader } from './protocol'
 

@@ -56,18 +56,113 @@ export type Playback = {
   startDelayMs: number
 }
 
+// --- layers (REQUIREMENTS §6.2) --------------------------------------------
+//
+// Stripes, waves and images cannot be expressed as scattered keyframes, so the
+// inverse-distance field is one layer kind among several rather than the whole
+// model. Layers are ordered bottom to top and composited over the project
+// background.
+
+export type BlendMode = 'normal' | 'add' | 'multiply' | 'screen'
+
+export const BLEND_MODES: { id: BlendMode; label: string; note: string }[] = [
+  { id: 'normal', label: 'Normal', note: 'covers what is under it' },
+  { id: 'add', label: 'Add', note: 'light adds to light — the physical one' },
+  { id: 'screen', label: 'Screen', note: 'like add, but cannot clip' },
+  { id: 'multiply', label: 'Multiply', note: 'darkens — masks the layers below' },
+]
+
+/** Two stops is enough for every pattern here; more belongs in a gradient layer. */
+export type ColorRamp = { from: Color; to: Color }
+
+/** LED index across, or time downward. Every pattern needs to pick one. */
+export type PatternAxis = 'led' | 'time'
+
+export type Pattern =
+  | { kind: 'solid'; color: Color }
+  | {
+      kind: 'stripes'
+      axis: PatternAxis
+      /** Stripe pair width, in normalised units of the axis. */
+      period: number
+      /** 0..1 share of the period given to `ramp.from`. */
+      duty: number
+      /** 0 = hard edge, 1 = fully soft. */
+      softness: number
+      phase: number
+      ramp: ColorRamp
+    }
+  | {
+      kind: 'wave'
+      axis: PatternAxis
+      wavelength: number
+      /** 0..1 peak brightness of the wave envelope. */
+      amplitude: number
+      phase: number
+      /** Cycles over the whole animation. 0 = static. */
+      speed: number
+      ramp: ColorRamp
+    }
+  | {
+      kind: 'gradient'
+      /** Degrees. 0 = along LED index, 90 = along time. */
+      angle: number
+      ramp: ColorRamp
+    }
+  | {
+      kind: 'noise'
+      scale: number
+      speed: number
+      seed: number
+      ramp: ColorRamp
+    }
+
+export type PatternKind = Pattern['kind']
+
+export const PATTERN_KINDS: { id: PatternKind; label: string }[] = [
+  { id: 'stripes', label: 'Stripes' },
+  { id: 'wave', label: 'Wave' },
+  { id: 'gradient', label: 'Gradient' },
+  { id: 'noise', label: 'Noise' },
+  { id: 'solid', label: 'Solid' },
+]
+
+export type ImageFit = 'stretch' | 'contain' | 'cover'
+
+type LayerBase = {
+  id: string
+  name: string
+  /** 0..1, multiplies the layer's own alpha. */
+  opacity: number
+  blend: BlendMode
+  hidden: boolean
+}
+
+export type KeyframeLayer = LayerBase & { kind: 'keyframes'; keyframes: Keyframe[] }
+export type PatternLayer = LayerBase & { kind: 'pattern'; pattern: Pattern }
+export type ImageLayer = LayerBase & {
+  kind: 'image'
+  /** Data URL, so a project stays one self-contained JSON file. */
+  src: string
+  fit: ImageFit
+}
+
+export type Layer = KeyframeLayer | PatternLayer | ImageLayer
+export type LayerKind = Layer['kind']
+
 export type Project = {
   id: string
   name: string
   ledCount: number
   durationMs: number
   fps: number
-  /** What the field decays toward outside every keyframe's radius. */
+  /** The base of the layer stack, and what keyframe layers decay toward. */
   background: Color
   colorSpace: ColorSpace
   /** IDW exponent, 0.5–6. */
   falloffPower: number
-  keyframes: Keyframe[]
+  /** Bottom to top. */
+  layers: Layer[]
   playback: Playback
   /** Epoch ms, for sorting the library. */
   updatedAt: number

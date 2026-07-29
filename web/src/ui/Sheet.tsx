@@ -6,7 +6,7 @@
 
 import type { ReactNode } from 'react'
 
-export type SheetTab = 'keyframe' | 'device' | 'project'
+export type SheetTab = 'keyframe' | 'layers' | 'device' | 'project'
 
 export function Sheet({
   open,
@@ -23,6 +23,7 @@ export function Sheet({
 }) {
   const tabs: { id: SheetTab; label: string }[] = [
     { id: 'keyframe', label: 'Keyframe' },
+    { id: 'layers', label: 'Layers' },
     { id: 'device', label: 'Device' },
     { id: 'project', label: 'Project' },
   ]

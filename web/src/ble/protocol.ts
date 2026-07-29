@@ -1,9 +1,16 @@
-// Light Painting Stick — shared wire protocol.
+// Legacy BLE wire protocol (v1).
 //
-// MUST stay byte-for-byte in sync with firmware/src/protocol.h
-// Authoritative description: PROTOCOL.md (extracted from REQUIREMENTS.md §2).
+// Superseded by the WebSocket relay in web/src/transport/. It stays until the WiFi
+// path has been flashed and proven on real hardware, then it goes — see
+// REQUIREMENTS §7, M4. Do not extend it.
+//
+// MUST stay byte-for-byte in sync with firmware/src/protocol.h. The device state
+// and error tables and crc32 are shared with the relay, because the numbers mean
+// the same thing on both wires.
 //
 // All multi-byte fields on the wire are little-endian.
+
+import type { DeviceStateValue, UploadOptions } from '../transport/protocol'
 
 export const DEVICE_NAME = 'LightStick'
 
@@ -11,8 +18,6 @@ export const SERVICE_UUID = '9a1e0000-1b2c-4d3e-8f90-a1b2c3d4e5f6'
 export const CONTROL_UUID = '9a1e0001-1b2c-4d3e-8f90-a1b2c3d4e5f6'
 export const DATA_UUID = '9a1e0002-1b2c-4d3e-8f90-a1b2c3d4e5f6'
 export const STATUS_UUID = '9a1e0003-1b2c-4d3e-8f90-a1b2c3d4e5f6'
-
-export const PROTOCOL_VERSION = 1
 
 /**
  * Web Bluetooth does not expose the negotiated MTU, so the chunk size cannot be
@@ -50,16 +55,7 @@ export const Flag = {
   AUTOPLAY: 1 << 2,
 } as const
 
-export type UploadHeader = {
-  ledCount: number
-  frameCount: number
-  fps: number
-  startDelayMs: number
-  loop: boolean
-  pingPong: boolean
-  autoPlay: boolean
-  crc32: number
-}
+export type UploadHeader = UploadOptions & { crc32: number }
 
 export function encodeHeader(h: UploadHeader): Uint8Array {
   const buf = new ArrayBuffer(HEADER_SIZE)
@@ -93,16 +89,6 @@ export function controlFrame(op: number, payload?: Uint8Array): Uint8Array {
 
 export const STATUS_SIZE = 16
 
-export const DeviceState = {
-  IDLE: 0,
-  RECEIVING: 1,
-  READY: 2,
-  PLAYING: 3,
-  ERROR: 4,
-} as const
-
-export type DeviceStateValue = (typeof DeviceState)[keyof typeof DeviceState]
-
 export type Status = {
   state: DeviceStateValue
   errorCode: number
@@ -125,74 +111,3 @@ export function decodeStatus(view: DataView): Status | null {
   }
 }
 
-export function stateLabel(state: number): string {
-  switch (state) {
-    case DeviceState.IDLE:
-      return 'Idle'
-    case DeviceState.RECEIVING:
-      return 'Receiving'
-    case DeviceState.READY:
-      return 'Ready'
-    case DeviceState.PLAYING:
-      return 'Playing'
-    case DeviceState.ERROR:
-      return 'Error'
-    default:
-      return 'Unknown'
-  }
-}
-
-// --- error codes -----------------------------------------------------------
-
-export const ErrorCode = {
-  NONE: 0x00,
-  OUT_OF_MEMORY: 0x01,
-  BAD_HEADER: 0x02,
-  CRC_MISMATCH: 0x03,
-  LED_COUNT_MISMATCH: 0x04,
-  TIMEOUT: 0x05,
-  BAD_STATE: 0x06,
-} as const
-
-/** What happened, and what to do about it. */
-export function errorMessage(code: number): string {
-  switch (code) {
-    case ErrorCode.NONE:
-      return ''
-    case ErrorCode.OUT_OF_MEMORY:
-      return 'The stick does not have enough free memory for this animation. Shorten it or drop the frame rate.'
-    case ErrorCode.BAD_HEADER:
-      return 'The stick rejected the upload header. The firmware is a different protocol version — reflash it.'
-    case ErrorCode.CRC_MISMATCH:
-      return 'The transfer arrived corrupted. Upload again.'
-    case ErrorCode.LED_COUNT_MISMATCH:
-      return 'The stick is built for a different number of LEDs. Match the project LED count to the firmware.'
-    case ErrorCode.TIMEOUT:
-      return 'The transfer stalled for 5 seconds and the stick gave up. Move closer and upload again.'
-    case ErrorCode.BAD_STATE:
-      return 'The stick could not do that right now. Wait for it to finish and try again.'
-    default:
-      return `The stick reported error 0x${code.toString(16).padStart(2, '0')}.`
-  }
-}
-
-// --- CRC-32 ---------------------------------------------------------------
-
-const CRC_TABLE = (() => {
-  const table = new Uint32Array(256)
-  for (let i = 0; i < 256; i++) {
-    let c = i
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-    table[i] = c >>> 0
-  }
-  return table
-})()
-
-/** CRC-32/ISO-HDLC, matching crc32() in firmware/src/animation.cpp. */
-export function crc32(data: Uint8Array): number {
-  let crc = 0xffffffff
-  for (let i = 0; i < data.length; i++) {
-    crc = CRC_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8)
-  }
-  return (crc ^ 0xffffffff) >>> 0
-}

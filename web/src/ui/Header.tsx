@@ -1,31 +1,33 @@
-import { DeviceState, stateLabel } from '../ble/protocol'
-import type { Device } from '../ble/useDevice'
 import { formatBytes, formatSeconds, frameCount, payloadBytes } from '../model/project'
 import type { Project } from '../model/types'
+import { stateLabel } from '../transport/protocol'
+import type { Transport } from '../transport/types'
 import { IconButton } from './primitives'
 
 export function Header({
   project,
-  device,
+  transport,
   canUndo,
   canRedo,
   onUndo,
   onRedo,
   onOpenProject,
+  onOpenLayers,
   onOpenDevice,
 }: {
   project: Project
-  device: Device
+  transport: Transport
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
   onRedo: () => void
   onOpenProject: () => void
+  onOpenLayers: () => void
   onOpenDevice: () => void
 }) {
-  const connected = device.connection === 'connected'
-  const state = device.status?.state
-  const ceiling = device.maxAnimationBytes
+  const target = transport.selected
+  const online = target?.online === true
+  const ceiling = transport.maxAnimationBytes
   const bytes = payloadBytes(project)
   const overBudget = ceiling !== null && bytes > ceiling
 
@@ -47,6 +49,13 @@ export function Header({
         </span>
       </button>
 
+      <IconButton label={`Layers (${project.layers.length})`} onClick={onOpenLayers}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+          <path d="M8 1.5L14.5 5 8 8.5 1.5 5 8 1.5z" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M2.5 8l5.5 3 5.5-3M2.5 11l5.5 3 5.5-3" stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      </IconButton>
+
       <IconButton label="Undo" disabled={!canUndo} onClick={onUndo}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
           <path d="M6 3L2.5 6.5 6 10" stroke="currentColor" strokeWidth="1.5" />
@@ -65,12 +74,12 @@ export function Header({
         onClick={onOpenDevice}
         className={[
           'min-h-11 shrink-0 rounded border px-2 text-xs',
-          connected ? 'border-fg text-fg' : 'border-line text-mute',
+          online ? 'border-fg text-fg' : 'border-line text-mute',
         ].join(' ')}
       >
-        <span className="block">{connected ? 'Stick' : 'No stick'}</span>
+        <span className="block max-w-24 truncate">{online ? target.name : 'No stick'}</span>
         <span className="num block text-[10px] text-mute">
-          {connected ? stateLabel(state ?? DeviceState.IDLE) : 'Connect'}
+          {online ? stateLabel(target.state) : transport.kind === 'ble' ? 'Pair' : 'Waiting'}
         </span>
       </button>
     </header>

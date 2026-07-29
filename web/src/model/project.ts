@@ -1,5 +1,14 @@
 import { clamp } from './color'
-import type { Keyframe, KeyframeKind, Project } from './types'
+import type {
+  Keyframe,
+  KeyframeKind,
+  KeyframeLayer,
+  Layer,
+  LayerKind,
+  Pattern,
+  PatternKind,
+  Project,
+} from './types'
 import { FPS_OPTIONS } from './types'
 
 export const DEFAULT_LED_COUNT = 144
@@ -46,7 +55,7 @@ export function createProject(name = 'Untitled'): Project {
     background: '#000000',
     colorSpace: 'oklab',
     falloffPower: 2,
-    keyframes: [],
+    layers: [],
     playback: { loop: false, pingPong: false, startDelayMs: 0 },
     updatedAt: Date.now(),
   }
@@ -82,6 +91,80 @@ export function clampKeyframe(k: Keyframe, p: Project): Keyframe {
   }
 }
 
+// --- layers ----------------------------------------------------------------
+
+const DEFAULT_RAMP = { from: '#ff2d00', to: '#00d0ff' }
+
+export function defaultPattern(kind: PatternKind): Pattern {
+  switch (kind) {
+    case 'solid':
+      return { kind: 'solid', color: '#00d0ff' }
+    case 'stripes':
+      return {
+        kind: 'stripes',
+        axis: 'led',
+        period: 0.2,
+        duty: 0.5,
+        softness: 0.1,
+        phase: 0,
+        ramp: DEFAULT_RAMP,
+      }
+    case 'wave':
+      return {
+        kind: 'wave',
+        axis: 'led',
+        wavelength: 0.5,
+        amplitude: 1,
+        phase: 0,
+        speed: 1,
+        ramp: DEFAULT_RAMP,
+      }
+    case 'gradient':
+      return { kind: 'gradient', angle: 90, ramp: DEFAULT_RAMP }
+    case 'noise':
+      return { kind: 'noise', scale: 6, speed: 1, seed: 1, ramp: DEFAULT_RAMP }
+  }
+}
+
+const DEFAULT_LAYER_NAME: Record<LayerKind, string> = {
+  keyframes: 'Keyframes',
+  pattern: 'Pattern',
+  image: 'Image',
+}
+
+export function createLayer(kind: LayerKind, name?: string): Layer {
+  const base = {
+    id: uid(),
+    name: name ?? DEFAULT_LAYER_NAME[kind],
+    opacity: 1,
+    blend: 'normal' as const,
+    hidden: false,
+  }
+  switch (kind) {
+    case 'keyframes':
+      return { ...base, kind: 'keyframes', keyframes: [] }
+    case 'pattern':
+      return { ...base, kind: 'pattern', pattern: defaultPattern('stripes') }
+    case 'image':
+      return { ...base, kind: 'image', src: '', fit: 'stretch' }
+  }
+}
+
+export function isKeyframeLayer(layer: Layer): layer is KeyframeLayer {
+  return layer.kind === 'keyframes'
+}
+
+/** The layer keyframe tools draw into: the requested one, else the topmost. */
+export function activeKeyframeLayer(p: Project, id: string | null): KeyframeLayer | null {
+  const named = p.layers.find((l) => l.id === id)
+  if (named && isKeyframeLayer(named)) return named
+  for (let i = p.layers.length - 1; i >= 0; i--) {
+    const l = p.layers[i]
+    if (isKeyframeLayer(l)) return l
+  }
+  return null
+}
+
 /**
  * A starter animation, so a new project is not a black rectangle. Brightness is
  * deliberately below 1 so the first thing a user sees is inside the power budget.
@@ -93,14 +176,13 @@ export function seedProject(p: Project): Project {
     radius: 0.45,
     brightness: 0.7,
   })
-  return {
-    ...p,
-    keyframes: [
-      seed(0, 0, '#ff2d00'),
-      seed(mid, p.durationMs / 2, '#00d0ff'),
-      seed(p.ledCount - 1, p.durationMs, '#ffd400'),
-    ],
-  }
+  const layer = createLayer('keyframes') as KeyframeLayer
+  layer.keyframes = [
+    seed(0, 0, '#ff2d00'),
+    seed(mid, p.durationMs / 2, '#00d0ff'),
+    seed(p.ledCount - 1, p.durationMs, '#ffd400'),
+  ]
+  return { ...p, layers: [layer] }
 }
 
 // --- formatting (copy rules from REQUIREMENTS §4.11) ------------------------

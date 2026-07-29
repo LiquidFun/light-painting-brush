@@ -11,13 +11,24 @@ import {
   payloadBytes,
 } from '../model/project'
 import { downloadJson, parseImport, slug, toExportFile } from '../model/storage'
+import type { LibrarySync } from '../model/library'
 import { COLOR_SPACES, FPS_OPTIONS } from '../model/types'
 import type { Project } from '../model/types'
 import { Button, Field, Panel, Row, Segmented, Slider, Stat, Toggle } from './primitives'
 
+const SYNC_NOTE: Record<LibrarySync, string> = {
+  loading: 'Checking the shared library on the server…',
+  saving: 'Saving to the shared library…',
+  synced: 'Saved here and in the shared library on the server.',
+  offline:
+    'Saved in this browser only — the server could not be reached. It will not sync until you reload with a connection.',
+  idle: 'Saved in this browser.',
+}
+
 export function ProjectPanel({
   project,
   library,
+  librarySync,
   maxAnimationBytes,
   night,
   onNightChange,
@@ -29,6 +40,7 @@ export function ProjectPanel({
 }: {
   project: Project
   library: Project[]
+  librarySync: LibrarySync
   maxAnimationBytes: number | null
   night: boolean
   onNightChange: (value: boolean) => void
@@ -181,7 +193,7 @@ export function ProjectPanel({
               >
                 {p.name}
                 <span className="num ml-2 text-xs text-mute">
-                  {formatSeconds(p.durationMs)} · {p.keyframes.length}
+                  {formatSeconds(p.durationMs)} · {p.layers.length} layers
                 </span>
               </button>
               <Button
@@ -228,7 +240,9 @@ export function ProjectPanel({
           }}
         />
         <p className="text-xs text-mute">
-          Projects live in this browser's storage and are saved as you work.
+          One shared library: everybody with the password sees and can edit these.
+          {' '}
+          {SYNC_NOTE[librarySync]}
         </p>
       </Panel>
     </>

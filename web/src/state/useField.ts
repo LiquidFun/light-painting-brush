@@ -9,15 +9,21 @@ import { useEffect, useState } from 'react'
 
 import { evaluateField } from '../render/field'
 import type { Field } from '../render/field'
+import { subscribeImages } from '../render/imageCache'
 import type { Project } from '../model/types'
 
 export function useField(project: Project): Field {
   const [field, setField] = useState<Field>(() => evaluateField(project))
+  // Image layers decode asynchronously, so the first evaluation after one is
+  // added or resized misses it. The cache says when a bitmap has landed.
+  const [imageEpoch, setImageEpoch] = useState(0)
+
+  useEffect(() => subscribeImages(() => setImageEpoch((n) => n + 1)), [])
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setField(evaluateField(project)))
     return () => cancelAnimationFrame(raf)
-  }, [project])
+  }, [project, imageEpoch])
 
   return field
 }
