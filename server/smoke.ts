@@ -27,8 +27,9 @@ await writeFile(path.join(stat, 'index.html'), '<!doctype html><title>spa</title
 await writeFile(path.join(stat, 'assets', 'app.js'), 'console.log(1)')
 
 const PORT = 8123
-const child = spawn('node', ['src/index.ts'], {
-  cwd: '/workspace/LightPaintingLEDBrush/server',
+// Relative to this file, not to the caller's cwd, and process.execPath rather
+// than "node" so the child is the same runtime that is running this test.
+const child = spawn(process.execPath, [path.join(import.meta.dirname, 'src', 'index.ts')], {
   env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: data, STATIC_DIR: stat },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
