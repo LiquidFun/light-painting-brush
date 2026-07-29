@@ -105,12 +105,18 @@ instead, because they must not be committed.
 
 While idle, LED 0 alone is lit dim (brightness 8):
 
-| Colour | Meaning |
-|---|---|
-| orange | no relay connection — the stick is fine, the network is not |
-| blue | idle or receiving |
-| green | animation loaded, ready |
-| red | error — read the serial log for the code |
+| Colour | Meaning | Where to look |
+|---|---|---|
+| magenta | never joined WiFi | SSID, 2.4 GHz vs 5 GHz, hidden network, password |
+| orange | on WiFi, but the relay is not answering | relay host, TLS, Basic auth credentials, is the server up |
+| blue | idle, or receiving an upload | — |
+| green | animation loaded and verified, ready | — |
+| red | error | serial log for the code |
+
+Magenta and orange are the important pair: they split "the radio never got on
+the network" from "the network is fine and the server is the problem", which are
+completely different fixes and used to look identical. Over BLE, orange means
+advertising with nothing paired.
 
 It is suppressed for the whole of `startDelayMs` and playback, so it cannot end
 up in the photograph.

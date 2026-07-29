@@ -51,7 +51,7 @@ uint32_t lastButtonMs = 0;
 bool lastButtonLevel = HIGH;
 
 DeviceState ledShown = STATE_IDLE;
-bool ledLinked = false;
+LinkStage ledLink = LS_LINK_DOWN;
 bool ledValid = false;
 
 const char* stateName(DeviceState s) {
@@ -275,11 +275,11 @@ void updateStatusLed() {
     ledValid = false;
     return;
   }
-  bool up = transport.linked();
-  if (!ledValid || ledShown != state || ledLinked != up) {
-    player.showStatusLed(state, up);
+  LinkStage link = transport.linkStage();
+  if (!ledValid || ledShown != state || ledLink != link) {
+    player.showStatusLed(state, link);
     ledShown = state;
-    ledLinked = up;
+    ledLink = link;
     ledValid = true;
   }
 }

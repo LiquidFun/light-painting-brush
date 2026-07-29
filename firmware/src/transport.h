@@ -13,6 +13,19 @@
 
 #include "protocol.h"
 
+// How far the stick has got toward being reachable. Split out from a plain bool
+// because "the radio never joined" and "joined, but the relay did not answer"
+// need completely different fixes, and the status LED is often the only
+// diagnostic available in a field (§4.4).
+//
+// LS_-prefixed for the same reason as the error codes: lwIP is in the global
+// namespace on the WiFi build and is generous with names like LINK_UP.
+enum LinkStage : uint8_t {
+  LS_LINK_DOWN = 0,     // no network association at all
+  LS_LINK_NETWORK = 1,  // on the network, but not talking to the relay
+  LS_LINK_UP = 2,       // relay connected
+};
+
 struct StatusSnapshot {
   DeviceState state = STATE_IDLE;
   ErrorCode error = LS_ERR_NONE;
@@ -51,8 +64,10 @@ class Transport {
 
   virtual void publishStatus(const StatusSnapshot& s) = 0;
 
+  virtual LinkStage linkStage() const = 0;
+
   // True when a peer could receive a status right now.
-  virtual bool linked() const = 0;
+  bool linked() const { return linkStage() == LS_LINK_UP; }
 
   // Bytes per inbound chunk, for the boot log. Derived from the negotiated MTU on
   // BLE; a constant on the relay.

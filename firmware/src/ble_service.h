@@ -27,7 +27,7 @@ class BleService : public Transport {
   // value so a fresh connection can read state immediately.
   void publishStatus(const StatusSnapshot& s) override;
 
-  bool linked() const override;
+  LinkStage linkStage() const override;
 
   // Derived from the negotiated MTU, never a constant: MTU negotiation can land
   // lower than requested and a hardcoded 512 would silently truncate.

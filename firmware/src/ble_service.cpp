@@ -114,8 +114,11 @@ void BleService::publishStatus(const StatusSnapshot& s) {
   if (linked()) statusChar->notify();
 }
 
-bool BleService::linked() const {
-  return server != nullptr && server->getConnectedCount() > 0;
+LinkStage BleService::linkStage() const {
+  if (server == nullptr) return LS_LINK_DOWN;
+  // Advertising with no peer is the BLE equivalent of "on the network, nobody
+  // has connected" — the radio is fine and there is nothing to fix on the stick.
+  return server->getConnectedCount() > 0 ? LS_LINK_UP : LS_LINK_NETWORK;
 }
 
 uint16_t BleService::chunkSize() const {

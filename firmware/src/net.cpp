@@ -235,6 +235,12 @@ void NetService::publishStatus(const StatusSnapshot& s) {
   ws.sendTXT(buf);
 }
 
-bool NetService::linked() const { return linked_; }
+LinkStage NetService::linkStage() const {
+  if (linked_) return LS_LINK_UP;
+  // Distinguishing these two is the whole point: no association means the SSID,
+  // the band or the password; associated but not connected means the relay, the
+  // hostname, TLS or the Basic auth credentials.
+  return WiFi.status() == WL_CONNECTED ? LS_LINK_NETWORK : LS_LINK_DOWN;
+}
 
 const char* NetService::deviceId() const { return deviceIdBuf; }

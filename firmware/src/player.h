@@ -7,6 +7,7 @@
 
 #include "animation.h"
 #include "protocol.h"
+#include "transport.h"
 
 class Player {
  public:
@@ -37,9 +38,9 @@ class Player {
   bool identifying() const { return identifyUntilMs_ != 0; }
 
   // Dim single-LED state indicator; no-op when STATUS_LED_ENABLED is 0 or while
-  // exposing. `linked` false gets its own colour, because "no network" and "idle"
-  // are the two states a user most needs to tell apart in the dark (§4.4).
-  void showStatusLed(DeviceState state, bool linked);
+  // exposing. Anything short of LS_LINK_UP gets its own colour, because in the
+  // dark the LED is usually the only diagnostic available (§4.4).
+  void showStatusLed(DeviceState state, LinkStage link);
 
  private:
   enum class Phase : uint8_t { Off, Delay, Running };

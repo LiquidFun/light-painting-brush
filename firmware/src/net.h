@@ -19,7 +19,7 @@ class NetService : public Transport {
   void begin(TransportHandler* handler) override;
   void poll(bool exposing) override;
   void publishStatus(const StatusSnapshot& s) override;
-  bool linked() const override;
+  LinkStage linkStage() const override;
   uint16_t chunkSize() const override { return (uint16_t)LS_RELAY_CHUNK; }
   const char* name() const override { return "wifi"; }
 

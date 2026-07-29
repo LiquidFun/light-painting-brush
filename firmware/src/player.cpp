@@ -139,14 +139,17 @@ void Player::blank() {
   FastLED.show();
 }
 
-void Player::showStatusLed(DeviceState state, bool linked) {
+void Player::showStatusLed(DeviceState state, LinkStage link) {
 #if STATUS_LED_ENABLED
   // Must never be lit while the shutter could be open (§4.4).
   if (exposing() || identifying()) return;
 
-  // Distinct from every state colour: the stick is fine, the network is not.
-  CRGB c = CRGB::Orange;
-  if (linked) {
+  // Magenta and orange are far apart at brightness 8, which matters because
+  // telling these two apart is the point of splitting them.
+  CRGB c = CRGB::Magenta;  // LS_LINK_DOWN: never joined the network
+  if (link == LS_LINK_NETWORK) {
+    c = CRGB::Orange;  // on the network, relay not answering
+  } else if (link == LS_LINK_UP) {
     switch (state) {
       case STATE_IDLE:
         c = CRGB::Blue;
@@ -171,6 +174,6 @@ void Player::showStatusLed(DeviceState state, bool linked) {
   FastLED.show();
 #else
   (void)state;
-  (void)linked;
+  (void)link;
 #endif
 }
