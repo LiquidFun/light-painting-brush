@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output
+web/dist/
+firmware/.pio/
+
+# Editor / tooling
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local overrides and secrets
+.env
+.env.*
+!.env.example
+*.local
+secrets.h

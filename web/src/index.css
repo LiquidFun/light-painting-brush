@@ -1,0 +1,150 @@
+@import 'tailwindcss';
+
+/* The interface has no accent colour. Every saturated pixel on screen belongs to
+   the user's animation; chrome carries state through weight, border and fill
+   instead of hue (REQUIREMENTS §4.11). If you are about to add a blue button,
+   don't. */
+
+@theme inline {
+  --color-bg: var(--chrome-bg);
+  --color-panel: var(--chrome-panel);
+  --color-raised: var(--chrome-raised);
+  --color-line: var(--chrome-line);
+  --color-line-strong: var(--chrome-line-strong);
+  --color-fg: var(--chrome-fg);
+  --color-dim: var(--chrome-dim);
+  --color-mute: var(--chrome-mute);
+
+  --font-sans: 'Space Grotesk', 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+}
+
+/* Dark by default, and not as a trend: this gets used outdoors at night. */
+:root {
+  --chrome-bg: #0c0e10;
+  --chrome-panel: #14171a;
+  --chrome-raised: #1b1f23;
+  --chrome-line: #262b30;
+  --chrome-line-strong: #3b4249;
+  --chrome-fg: #e6e9ec;
+  --chrome-dim: #a3abb2;
+  --chrome-mute: #6c757c;
+  color-scheme: dark;
+}
+
+/* Night mode: lower luminance still, chrome shifted toward deep red so it does
+   less damage to night vision and to the exposure. */
+:root.night {
+  --chrome-bg: #060302;
+  --chrome-panel: #0e0605;
+  --chrome-raised: #150907;
+  --chrome-line: #2a110c;
+  --chrome-line-strong: #48211a;
+  --chrome-fg: #b78372;
+  --chrome-dim: #8b5f52;
+  --chrome-mute: #60413a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--chrome-bg);
+  color: var(--chrome-fg);
+  font-family: var(--font-sans);
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+/* Numbers in this tool are coordinates. Tabular figures let the eye compare
+   them down a column. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Motion only where it explains something. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 44px; /* minimum touch target */
+  background: transparent;
+  width: 100%;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--chrome-line-strong);
+}
+
+input[type='range']::-moz-range-track {
+  height: 2px;
+  background: var(--chrome-line-strong);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -10px;
+  border-radius: 999px;
+  background: var(--chrome-fg);
+  border: 3px solid var(--chrome-bg);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--chrome-bg);
+  border-radius: 999px;
+  background: var(--chrome-fg);
+}
+
+select,
+input[type='text'],
+input[type='number'] {
+  font-family: var(--font-mono);
+  background: var(--chrome-bg);
+  color: var(--chrome-fg);
+  border: 1px solid var(--chrome-line-strong);
+  border-radius: 4px;
+  padding: 8px 10px;
+  min-height: 40px;
+  width: 100%;
+}
+
+select:focus-visible,
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--chrome-fg);
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--chrome-line-strong);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

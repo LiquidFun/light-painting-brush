@@ -1,0 +1,190 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+
+import { useDevice } from './ble/useDevice'
+import { frameCount } from './model/project'
+import { loadPrefs, savePrefs } from './model/storage'
+import { useEditor } from './state/useEditor'
+import { useField } from './state/useField'
+import { usePlayback } from './state/usePlayback'
+import { buildPayload } from './render/payload'
+import { BluetoothNotice } from './ui/BluetoothNotice'
+import { ContextMenu } from './ui/ContextMenu'
+import type { ContextTarget } from './ui/ContextMenu'
+import { DevicePanel } from './ui/DevicePanel'
+import { FieldCanvas } from './ui/FieldCanvas'
+import { Header } from './ui/Header'
+import { KeyframeEditor } from './ui/KeyframeEditor'
+import { PowerPanel } from './ui/PowerPanel'
+import { ProjectPanel } from './ui/ProjectPanel'
+import { Sheet } from './ui/Sheet'
+import type { SheetTab } from './ui/Sheet'
+import { StripBar } from './ui/StripBar'
+import { ToolSelector } from './ui/ToolSelector'
+import { Transport } from './ui/Transport'
+
+export default function App() {
+  const editor = useEditor()
+  const device = useDevice()
+  const { project } = editor
+  const field = useField(project)
+  const playhead = usePlayback(project.durationMs, project.fps)
+
+  const [prefs, setPrefs] = useState(loadPrefs)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [sheetTab, setSheetTab] = useState<SheetTab>('project')
+  const [menu, setMenu] = useState<ContextTarget | null>(null)
+  const [autoPlay, setAutoPlay] = useState(false)
+  const [lastColor, setLastColor] = useState('#ffffff')
+
+  useEffect(() => {
+    savePrefs(prefs)
+    document.documentElement.classList.toggle('night', prefs.night)
+  }, [prefs])
+
+  const openSheet = useCallback((tab: SheetTab) => {
+    setSheetTab(tab)
+    setSheetOpen(true)
+  }, [])
+
+  const upload = useCallback(async () => {
+    const payload = buildPayload(field)
+    await device.upload(payload, {
+      ledCount: project.ledCount,
+      frameCount: field.height,
+      fps: project.fps,
+      startDelayMs: project.playback.startDelayMs,
+      loop: project.playback.loop,
+      pingPong: project.playback.pingPong,
+      autoPlay,
+    })
+  }, [autoPlay, device, field, project])
+
+  const selected = editor.selected
+  const menuKeyframe = useMemo(
+    () => (menu ? project.keyframes.find((k) => k.id === menu.id) ?? null : null),
+    [menu, project.keyframes],
+  )
+
+  const showNotice = !device.supported && !prefs.bluetoothNoticeDismissed
+
+  return (
+    <div className="flex h-full flex-col lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Header
+          project={project}
+          device={device}
+          canUndo={editor.canUndo}
+          canRedo={editor.canRedo}
+          onUndo={editor.undo}
+          onRedo={editor.redo}
+          onOpenProject={() => openSheet('project')}
+          onOpenDevice={() => openSheet('device')}
+        />
+
+        {showNotice && (
+          <BluetoothNotice
+            onDismiss={() => setPrefs((p) => ({ ...p, bluetoothNoticeDismissed: true }))}
+          />
+        )}
+
+        <div className="min-h-0 flex-1">
+          <FieldCanvas
+            project={project}
+            field={field}
+            playheadMs={playhead.timeMs}
+            selectedId={editor.selectedId}
+            tool={editor.tool}
+            defaultColor={lastColor}
+            onAdd={editor.addKeyframe}
+            onSelect={editor.select}
+            onMove={(id, patch, push) => editor.updateKeyframe(id, patch, push)}
+            onScrub={(ms) => {
+              playhead.pause()
+              playhead.setTime(ms)
+            }}
+            onOpenEditor={() => openSheet('keyframe')}
+            onContextMenu={(id, x, y) => setMenu({ id, x, y })}
+          />
+        </div>
+
+        <p className="num px-2 py-1 text-center text-[10px] text-mute">
+          LED index across · time downward — this is what the photograph will look like
+        </p>
+
+        <StripBar field={field} timeMs={playhead.timeMs} fps={project.fps} />
+        <Transport
+          playhead={playhead}
+          durationMs={project.durationMs}
+          fps={project.fps}
+          frameCount={frameCount(project)}
+        />
+        <ToolSelector tool={editor.tool} onChange={editor.setTool} />
+      </div>
+
+      <Sheet
+        open={sheetOpen}
+        tab={sheetTab}
+        onTab={setSheetTab}
+        onClose={() => setSheetOpen(false)}
+      >
+        {sheetTab === 'keyframe' &&
+          (selected ? (
+            <KeyframeEditor
+              keyframe={selected}
+              project={project}
+              onChange={(patch, push) => {
+                if (patch.color) setLastColor(patch.color)
+                editor.updateKeyframe(selected.id, patch, push)
+              }}
+              onDelete={() => editor.removeKeyframe(selected.id)}
+              onDuplicate={() => editor.duplicateKeyframe(selected.id)}
+            />
+          ) : (
+            <p className="text-sm text-mute">
+              Nothing selected. Pick the Point, Row or Column tool and tap the canvas, or
+              tap an existing handle.
+            </p>
+          ))}
+
+        {sheetTab === 'device' && (
+          <DevicePanel
+            device={device}
+            project={project}
+            autoPlay={autoPlay}
+            onAutoPlayChange={setAutoPlay}
+            onPatchProject={editor.patchProject}
+            onUpload={() => void upload()}
+          />
+        )}
+
+        {sheetTab === 'project' && (
+          <>
+            <ProjectPanel
+              project={project}
+              library={editor.library}
+              maxAnimationBytes={device.maxAnimationBytes}
+              night={prefs.night}
+              onNightChange={(night) => setPrefs((p) => ({ ...p, night }))}
+              onPatch={editor.patchProject}
+              onOpen={editor.openProject}
+              onNew={editor.newProject}
+              onDelete={editor.deleteProject}
+              onImport={editor.importProjects}
+            />
+            <PowerPanel field={field} project={project} onPatch={editor.patchProject} />
+          </>
+        )}
+      </Sheet>
+
+      {menu && menuKeyframe && (
+        <ContextMenu
+          target={menu}
+          onClose={() => setMenu(null)}
+          onDuplicate={() => editor.duplicateKeyframe(menu.id)}
+          onDelete={() => editor.removeKeyframe(menu.id)}
+          onCopyColor={() => setLastColor(menuKeyframe.color)}
+        />
+      )}
+    </div>
+  )
+}
