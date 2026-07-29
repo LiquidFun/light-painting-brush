@@ -32,9 +32,9 @@ uint32_t Animation::maxAnimationBytes() {
 }
 
 ErrorCode Animation::begin(const uint8_t* header, size_t len) {
-  if (len != LS_HEADER_SIZE) return ERR_BAD_HEADER;
-  if (readU32(header + HDR_MAGIC) != LS_MAGIC) return ERR_BAD_HEADER;
-  if (header[HDR_VERSION] != LS_VERSION) return ERR_BAD_HEADER;
+  if (len != LS_HEADER_SIZE) return LS_ERR_BAD_HEADER;
+  if (readU32(header + HDR_MAGIC) != LS_MAGIC) return LS_ERR_BAD_HEADER;
+  if (header[HDR_VERSION] != LS_VERSION) return LS_ERR_BAD_HEADER;
 
   AnimationHeader h;
   h.flags = header[HDR_FLAGS];
@@ -44,8 +44,8 @@ ErrorCode Animation::begin(const uint8_t* header, size_t len) {
   h.startDelayMs = readU16(header + HDR_START_DELAY);
   h.crc32 = readU32(header + HDR_CRC32);
 
-  if (h.ledCount != LED_COUNT) return ERR_LED_COUNT_MISMATCH;
-  if (h.frameCount == 0 || h.fps == 0) return ERR_BAD_HEADER;
+  if (h.ledCount != LED_COUNT) return LS_ERR_LED_COUNT_MISMATCH;
+  if (h.frameCount == 0 || h.fps == 0) return LS_ERR_BAD_HEADER;
 
   uint32_t size = (uint32_t)h.frameCount * h.ledCount * 3u;
 
@@ -53,16 +53,16 @@ ErrorCode Animation::begin(const uint8_t* header, size_t len) {
   // memory counts as available (§3.1).
   reset();
 
-  if (size > maxAnimationBytes()) return ERR_OUT_OF_MEMORY;
+  if (size > maxAnimationBytes()) return LS_ERR_OUT_OF_MEMORY;
 
   // Single allocation of the full payload; no partial fallback (§3.1).
   buffer_ = (uint8_t*)malloc(size);
-  if (!buffer_) return ERR_OUT_OF_MEMORY;
+  if (!buffer_) return LS_ERR_OUT_OF_MEMORY;
 
   header_ = h;
   expected_ = size;
   received_ = 0;
-  return ERR_NONE;
+  return LS_ERR_NONE;
 }
 
 bool Animation::append(const uint8_t* data, size_t len) {

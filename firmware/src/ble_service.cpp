@@ -31,7 +31,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     Serial.println("[ble] disconnected");
     if (self) {
       self->setMtu(23);
-      if (self->handler()) self->handler()->onPeerDisconnect();
+      if (self->handler()) self->handler()->onPeerLost();
       self->startAdvertising();
     }
   }
@@ -45,14 +45,14 @@ class ServerCallbacks : public NimBLEServerCallbacks {
 class ControlCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
     NimBLEAttValue v = c->getValue();
-    if (self && self->handler()) self->handler()->onControlWrite(v.data(), v.length());
+    if (self && self->handler()) self->handler()->onControl(v.data(), v.length());
   }
 };
 
 class DataCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
     NimBLEAttValue v = c->getValue();
-    if (self && self->handler()) self->handler()->onDataWrite(v.data(), v.length());
+    if (self && self->handler()) self->handler()->onData(v.data(), v.length());
   }
 };
 
@@ -62,7 +62,7 @@ DataCallbacks dataCallbacks;
 
 }  // namespace
 
-void BleService::begin(BleHandler* handler) {
+void BleService::begin(TransportHandler* handler) {
   handler_ = handler;
   self = this;
 
@@ -111,10 +111,10 @@ void BleService::publishStatus(const StatusSnapshot& s) {
   writeU32(buf + ST_MAX_BYTES, s.maxAnimationBytes);
 
   statusChar->setValue(buf, sizeof(buf));
-  if (connected()) statusChar->notify();
+  if (linked()) statusChar->notify();
 }
 
-bool BleService::connected() const {
+bool BleService::linked() const {
   return server != nullptr && server->getConnectedCount() > 0;
 }
 

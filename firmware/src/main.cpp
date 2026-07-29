@@ -1,28 +1,42 @@
 // Light Painting Stick — firmware entry point and state machine.
 //
-// IDLE -> RECEIVING -> READY -> PLAYING -> READY  (§3.1)
+// IDLE -> RECEIVING -> READY -> PLAYING -> READY  (PROTOCOL.md §4)
 //
 // The firmware is a dumb player: all interpolation, colour maths and gamma
-// happen in the browser and arrive as fully-rendered RGB frames (§2.1).
+// happen in the browser and arrive as fully-rendered RGB frames (§1).
+//
+// Which link delivers them sits behind Transport, so nothing below this line
+// knows whether it is talking to the WiFi relay or the legacy BLE service.
 
 #include <Arduino.h>
 
 #include "animation.h"
-#include "ble_service.h"
 #include "player.h"
 #include "protocol.h"
+#include "transport.h"
+
+#if LS_USE_WIFI
+#include "net.h"
+#else
+#include "ble_service.h"
+#endif
 
 namespace {
 
 Animation animation;
 Player player;
-BleService ble;
+
+#if LS_USE_WIFI
+NetService transport;
+#else
+BleService transport;
+#endif
 
 DeviceState state = STATE_IDLE;
-ErrorCode lastError = ERR_NONE;
+ErrorCode lastError = LS_ERR_NONE;
 
-// Control writes arrive on the NimBLE task. They are parked here and executed
-// from loop() so that only one context ever touches FastLED or the heap.
+// Control messages arrive on the network or NimBLE task. They are parked here and
+// executed from loop() so that only one context ever touches FastLED or the heap.
 volatile bool pendingValid = false;
 uint8_t pendingOp = 0;
 uint8_t pendingPayload[LS_HEADER_SIZE];
@@ -37,6 +51,7 @@ uint32_t lastButtonMs = 0;
 bool lastButtonLevel = HIGH;
 
 DeviceState ledShown = STATE_IDLE;
+bool ledLinked = false;
 bool ledValid = false;
 
 const char* stateName(DeviceState s) {
@@ -60,9 +75,9 @@ StatusSnapshot snapshot() {
   return s;
 }
 
-void publish() { ble.publishStatus(snapshot()); }
+void publish() { transport.publishStatus(snapshot()); }
 
-void setState(DeviceState next, ErrorCode err = ERR_NONE) {
+void setState(DeviceState next, ErrorCode err = LS_ERR_NONE) {
   if (state != next || lastError != err) {
     Serial.printf("[state] %s -> %s (err 0x%02X, heap %u)\n", stateName(state),
                   stateName(next), err, (unsigned)ESP.getFreeHeap());
@@ -78,15 +93,19 @@ void reportBadState(uint8_t op) {
   Serial.printf("[ctrl] op 0x%02X rejected in %s\n", op, stateName(state));
   StatusSnapshot s = snapshot();
   s.state = STATE_ERROR;
-  s.error = ERR_BAD_STATE;
-  ble.publishStatus(s);
+  s.error = LS_ERR_BAD_STATE;
+  transport.publishStatus(s);
   publish();
 }
 
 // STATE_ERROR carries no animation, so it accepts a new upload just like IDLE.
-bool acceptsUpload() {
-  return state == STATE_IDLE || state == STATE_READY || state == STATE_ERROR;
-}
+//
+// STATE_RECEIVING accepts one too: there is no lock and no ownership (§3.7), so a
+// second person's upload cancels the transfer in progress rather than being
+// refused. Animation::begin frees the old buffer before sizing the new one, and
+// the interrupted client sees the state change on the broadcast and can retry.
+// It is also how a cancelled upload is retried without waiting out the timeout.
+bool acceptsUpload() { return state != STATE_PLAYING; }
 
 void startPlayback() {
   if (!animation.loaded()) {
@@ -108,7 +127,7 @@ void handleBeginUpload(const uint8_t* payload, size_t len) {
   player.stop();
 
   ErrorCode err = animation.begin(payload, len);
-  if (err != ERR_NONE) {
+  if (err != LS_ERR_NONE) {
     Serial.printf("[upload] rejected, err 0x%02X, maxAlloc %u\n", err,
                   (unsigned)Animation::maxAnimationBytes());
     // No partial allocation is attempted; nothing is loaded (§3.1).
@@ -119,7 +138,7 @@ void handleBeginUpload(const uint8_t* payload, size_t len) {
   const AnimationHeader& h = animation.header();
   Serial.printf("[upload] begin: %u frames x %u LEDs = %u bytes, chunk %u\n",
                 h.frameCount, h.ledCount, (unsigned)animation.expected(),
-                ble.chunkSize());
+                transport.chunkSize());
   lastProgressNotifyBytes = 0;
   lastDataMs = millis();
   setState(STATE_RECEIVING);
@@ -135,7 +154,7 @@ void finishUpload() {
   } else {
     Serial.println("[upload] CRC MISMATCH, discarding");
     animation.reset();
-    setState(STATE_ERROR, ERR_CRC_MISMATCH);
+    setState(STATE_ERROR, LS_ERR_CRC_MISMATCH);
   }
 }
 
@@ -195,8 +214,8 @@ void handleControl(uint8_t op, const uint8_t* payload, size_t len) {
   }
 }
 
-class Handler : public BleHandler {
-  void onControlWrite(const uint8_t* data, size_t len) override {
+class Handler : public TransportHandler {
+  void onControl(const uint8_t* data, size_t len) override {
     if (len < 1) return;
     pendingOp = data[0];
     pendingLen = len - 1 > LS_HEADER_SIZE ? LS_HEADER_SIZE : len - 1;
@@ -204,7 +223,7 @@ class Handler : public BleHandler {
     pendingValid = true;
   }
 
-  void onDataWrite(const uint8_t* data, size_t len) override {
+  void onData(const uint8_t* data, size_t len) override {
     if (state != STATE_RECEIVING) return;
     lastDataMs = millis();
     if (!animation.append(data, len)) {
@@ -218,9 +237,10 @@ class Handler : public BleHandler {
     }
   }
 
-  void onPeerDisconnect() override {
-    // Mid-upload disconnect: drop the partial transfer so the next connection
-    // starts clean and can simply retry from the beginning (§4.8).
+  void onPeerLost() override {
+    // A dropped connection must not disturb a loaded animation or playback in
+    // progress (§2). Only a partial transfer is worth abandoning: the next
+    // connection then starts clean and the client retries from the beginning.
     if (state == STATE_RECEIVING) {
       Serial.println("[upload] aborted by disconnect");
       animation.reset();
@@ -255,9 +275,11 @@ void updateStatusLed() {
     ledValid = false;
     return;
   }
-  if (!ledValid || ledShown != state) {
-    player.showStatusLed(state);
+  bool up = transport.linked();
+  if (!ledValid || ledShown != state || ledLinked != up) {
+    player.showStatusLed(state, up);
     ledShown = state;
+    ledLinked = up;
     ledValid = true;
   }
 }
@@ -271,16 +293,22 @@ void setup() {
   Serial.println("[boot] LightStick");
   Serial.printf("[boot] %u LEDs on GPIO %u, %u mA budget, heap %u\n", LED_COUNT,
                 DATA_PIN, MAX_MILLIAMPS, (unsigned)ESP.getFreeHeap());
+  Serial.printf("[boot] transport %s, protocol %u, fw %s\n", transport.name(),
+                (unsigned)LS_VERSION, LS_FIRMWARE_VERSION);
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   player.begin();
-  ble.begin(&handler);
+  transport.begin(&handler);
 
   setState(STATE_IDLE);
 }
 
 void loop() {
+  // Before the state machine, so a command that arrived this tick is acted on in
+  // the same pass rather than one loop late.
+  transport.poll(player.exposing());
+
   if (pendingValid) {
     pendingValid = false;
     handleControl(pendingOp, pendingPayload, pendingLen);
@@ -302,7 +330,7 @@ void loop() {
     } else if (millis() - lastDataMs > LS_TRANSFER_TIMEOUT_MS) {
       Serial.println("[upload] timeout");
       animation.reset();
-      setState(STATE_ERROR, ERR_TIMEOUT);
+      setState(STATE_ERROR, LS_ERR_TIMEOUT);
     }
   }
 

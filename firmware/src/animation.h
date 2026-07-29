@@ -29,7 +29,7 @@ class Animation {
 
   // Validates a 20-byte BEGIN_UPLOAD header and allocates the payload buffer.
   // Frees any previously loaded animation first (§3.1: one animation at a time,
-  // free before allocating). Returns ERR_NONE on success.
+  // free before allocating). Returns LS_ERR_NONE on success.
   ErrorCode begin(const uint8_t* header, size_t len);
 
   // Appends a Data chunk. Returns false if it would overrun the buffer.

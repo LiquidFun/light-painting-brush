@@ -1,13 +1,25 @@
 // Light Painting Stick — shared wire protocol.
 //
-// MUST stay byte-for-byte in sync with web/src/ble/protocol.ts
-// Authoritative description: PROTOCOL.md (extracted from REQUIREMENTS.md §2).
+// MUST stay in sync with web/src/transport/protocol.ts (v2, WiFi relay) and
+// web/src/ble/protocol.ts (v1, legacy BLE).
+// Authoritative description: PROTOCOL.md.
 //
-// All multi-byte fields on the wire are little-endian.
+// All multi-byte fields are little-endian.
+//
+// Two transports converge on one internal representation: the 20-byte upload
+// header below. Over BLE it is the wire format. Over the relay, net.cpp builds it
+// from the `begin` JSON, so animation.cpp and main.cpp are transport-agnostic.
 
 #pragma once
 
 #include <stdint.h>
+
+// Which transport this build speaks. Set by platformio.ini; the WiFi build is the
+// default and the BLE build stays only until the WiFi path is proven on hardware
+// (REQUIREMENTS §7, M4).
+#ifndef LS_USE_WIFI
+#define LS_USE_WIFI 1
+#endif
 
 // ---------------------------------------------------------------------------
 // Hardware / build configuration (REQUIREMENTS §3.5)
@@ -17,10 +29,10 @@ constexpr uint16_t LED_COUNT = 144;
 constexpr uint8_t DATA_PIN = 13;
 constexpr uint8_t BUTTON_PIN = 0;  // on-board BOOT button, active low
 // LED budget only — FastLED's estimator knows nothing about the ESP32's own
-// draw (~120 mA average, ~250 mA peak while the BLE radio transmits).
+// draw, which is higher with WiFi than it was with BLE (REQUIREMENTS §4.5).
 //   PC USB 2.0 port  (500 mA total) -> 250
 //   PC USB 3.0 port  (900 mA total) -> 600
-//   USB power bank   (5 V 3 A)      -> 2200  <- the value REQUIREMENTS §3.5 mandates
+//   USB power bank   (5 V 3 A)      -> 2200  <- the value REQUIREMENTS §4.5 mandates
 constexpr uint16_t MAX_MILLIAMPS = 250;
 constexpr uint8_t DEFAULT_BRIGHTNESS = 80;
 constexpr uint32_t HEAP_SAFETY_MARGIN = 24576;
@@ -36,7 +48,24 @@ constexpr uint32_t HEAP_SAFETY_MARGIN = 24576;
 #define POWER_BANK_KEEPALIVE 0
 
 // ---------------------------------------------------------------------------
-// BLE GATT (§2.2)
+// WiFi relay (PROTOCOL.md §2-§6) — the v2 transport
+// ---------------------------------------------------------------------------
+
+#define LS_FIRMWARE_VERSION "2.0.0"
+
+// Reported in `hello` and checked on every `begin`. A mismatch is error 0x02.
+constexpr uint8_t LS_PROTO_VERSION = 2;
+
+// Chunk size the browser uses (§6). The device never allocates per chunk, but the
+// WebSocket library does, so this bounds that.
+constexpr size_t LS_RELAY_CHUNK = 4096;
+
+// Exponential backoff on a dropped relay socket, capped (§2).
+constexpr uint32_t LS_RECONNECT_MIN_MS = 1000;
+constexpr uint32_t LS_RECONNECT_MAX_MS = 30000;
+
+// ---------------------------------------------------------------------------
+// BLE GATT (v1, legacy)
 // ---------------------------------------------------------------------------
 
 #define LS_DEVICE_NAME "LightStick"
@@ -70,7 +99,15 @@ enum Opcode : uint8_t {
 
 constexpr size_t LS_HEADER_SIZE = 20;
 constexpr uint32_t LS_MAGIC = 0x3153504C;  // "LPS1"
+
+// The version byte carries whichever protocol version this build speaks, so
+// Animation::begin rejects a mismatch as LS_ERR_BAD_HEADER — code 0x02, which both
+// PROTOCOL.md and the browser read as "unsupported protocol version".
+#if LS_USE_WIFI
+constexpr uint8_t LS_VERSION = LS_PROTO_VERSION;
+#else
 constexpr uint8_t LS_VERSION = 1;
+#endif
 
 // Offsets into the header payload.
 constexpr size_t HDR_MAGIC = 0;        // u32
@@ -109,24 +146,33 @@ enum DeviceState : uint8_t {
 };
 
 // ---------------------------------------------------------------------------
-// Error codes (§2.6)
+// Error codes (PROTOCOL.md §5)
 // ---------------------------------------------------------------------------
+//
+// LS_-prefixed because the WiFi build pulls in lwIP, whose err_enum_t already
+// occupies ERR_TIMEOUT and a dozen neighbouring names in the global namespace.
+// The numbers, not the names, are the contract.
 
 enum ErrorCode : uint8_t {
-  ERR_NONE = 0x00,
-  ERR_OUT_OF_MEMORY = 0x01,
-  ERR_BAD_HEADER = 0x02,
-  ERR_CRC_MISMATCH = 0x03,
-  ERR_LED_COUNT_MISMATCH = 0x04,
-  ERR_TIMEOUT = 0x05,
-  ERR_BAD_STATE = 0x06,
+  LS_ERR_NONE = 0x00,
+  LS_ERR_OUT_OF_MEMORY = 0x01,
+  LS_ERR_BAD_HEADER = 0x02,
+  LS_ERR_CRC_MISMATCH = 0x03,
+  LS_ERR_LED_COUNT_MISMATCH = 0x04,
+  LS_ERR_TIMEOUT = 0x05,
+  LS_ERR_BAD_STATE = 0x06,
 };
 
-// No Data write for this long while RECEIVING aborts the transfer (§2.6 0x05).
+// No payload bytes for this long while RECEIVING aborts the transfer (error
+// 0x05). The relay's budget is looser than BLE's because a WiFi stall is usually a
+// roaming event rather than a dead link.
+#if LS_USE_WIFI
+constexpr uint32_t LS_TRANSFER_TIMEOUT_MS = 10000;
+constexpr uint32_t LS_PROGRESS_INTERVAL_BYTES = 65536;
+#else
 constexpr uint32_t LS_TRANSFER_TIMEOUT_MS = 5000;
-
-// Notify upload progress at least this often (§2.5).
 constexpr uint32_t LS_PROGRESS_INTERVAL_BYTES = 4096;
+#endif
 
 constexpr uint32_t LS_BUTTON_DEBOUNCE_MS = 250;
 constexpr uint32_t LS_IDENTIFY_MS = 200;

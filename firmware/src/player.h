@@ -37,8 +37,9 @@ class Player {
   bool identifying() const { return identifyUntilMs_ != 0; }
 
   // Dim single-LED state indicator; no-op when STATUS_LED_ENABLED is 0 or while
-  // exposing.
-  void showStatusLed(DeviceState state);
+  // exposing. `linked` false gets its own colour, because "no network" and "idle"
+  // are the two states a user most needs to tell apart in the dark (§4.4).
+  void showStatusLed(DeviceState state, bool linked);
 
  private:
   enum class Phase : uint8_t { Off, Delay, Running };

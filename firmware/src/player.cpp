@@ -139,28 +139,31 @@ void Player::blank() {
   FastLED.show();
 }
 
-void Player::showStatusLed(DeviceState state) {
+void Player::showStatusLed(DeviceState state, bool linked) {
 #if STATUS_LED_ENABLED
-  // Must never be lit while the shutter could be open (§3.3).
+  // Must never be lit while the shutter could be open (§4.4).
   if (exposing() || identifying()) return;
 
-  CRGB c;
-  switch (state) {
-    case STATE_IDLE:
-      c = CRGB::Blue;
-      break;
-    case STATE_RECEIVING:
-      c = CRGB::Blue;
-      break;
-    case STATE_READY:
-      c = CRGB::Green;
-      break;
-    case STATE_ERROR:
-      c = CRGB::Red;
-      break;
-    default:
-      c = CRGB::Black;
-      break;
+  // Distinct from every state colour: the stick is fine, the network is not.
+  CRGB c = CRGB::Orange;
+  if (linked) {
+    switch (state) {
+      case STATE_IDLE:
+        c = CRGB::Blue;
+        break;
+      case STATE_RECEIVING:
+        c = CRGB::Blue;
+        break;
+      case STATE_READY:
+        c = CRGB::Green;
+        break;
+      case STATE_ERROR:
+        c = CRGB::Red;
+        break;
+      default:
+        c = CRGB::Black;
+        break;
+    }
   }
   fill_solid(leds, LED_COUNT, CRGB::Black);
   leds[0] = c;
@@ -168,5 +171,6 @@ void Player::showStatusLed(DeviceState state) {
   FastLED.show();
 #else
   (void)state;
+  (void)linked;
 #endif
 }
