@@ -200,6 +200,12 @@ void NetService::onDisconnected() {
   if (wasLinked) {
     Serial.printf("[net] relay lost, retrying in %u ms\n", (unsigned)backoffMs_);
     if (handler_) handler_->onPeerLost();
+  } else {
+    // A socket that never came up at all used to log nothing, which looks
+    // identical to the event loop not running. Rate-limited by the backoff.
+    Serial.printf("[net] relay connect failed: %s%s:%u%s, retrying in %u ms\n",
+                  LS_RELAY_TLS ? "wss://" : "ws://", LS_RELAY_HOST,
+                  (unsigned)LS_RELAY_PORT, LS_RELAY_PATH, (unsigned)backoffMs_);
   }
 }
 
