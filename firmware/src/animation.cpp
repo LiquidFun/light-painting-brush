@@ -25,8 +25,12 @@ static uint32_t readU32(const uint8_t* p) {
          ((uint32_t)p[3] << 24);
 }
 
-uint32_t Animation::maxAnimationBytes() {
+uint32_t Animation::maxAnimationBytes() const {
   uint32_t largest = ESP.getMaxAllocHeap();
+  // The loaded buffer came from a single malloc, so freeing it necessarily
+  // yields a contiguous block of exactly that size. Taking the larger of the two
+  // is therefore a guarantee rather than an estimate.
+  if (expected_ > largest) largest = expected_;
   if (largest <= HEAP_SAFETY_MARGIN) return 0;
   return largest - HEAP_SAFETY_MARGIN;
 }

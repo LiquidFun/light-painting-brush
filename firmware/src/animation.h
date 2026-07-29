@@ -23,9 +23,14 @@ struct AnimationHeader {
 
 class Animation {
  public:
-  // Largest payload the device could accept right now, from free heap less the
-  // safety margin. Reported in every Status notification (§2.5).
-  static uint32_t maxAnimationBytes();
+  // Largest payload the device could accept right now: the largest free block,
+  // less the safety margin, *plus* whatever is currently loaded.
+  //
+  // Counting the loaded animation is not optimism — begin() calls reset() before
+  // it allocates, so that exact block is handed back first. Ignoring it made the
+  // device report a ceiling that excluded the memory it was about to reuse, and
+  // the editor greyed out Upload for a project the stick had just accepted.
+  uint32_t maxAnimationBytes() const;
 
   // Validates a 20-byte BEGIN_UPLOAD header and allocates the payload buffer.
   // Frees any previously loaded animation first (§3.1: one animation at a time,

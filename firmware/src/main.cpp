@@ -78,7 +78,7 @@ StatusSnapshot snapshot() {
   s.error = lastError;
   s.bytesReceived = animation.received();
   s.bytesExpected = animation.expected();
-  s.maxAnimationBytes = Animation::maxAnimationBytes();
+  s.maxAnimationBytes = animation.maxAnimationBytes();
   return s;
 }
 
@@ -136,7 +136,7 @@ void handleBeginUpload(const uint8_t* payload, size_t len) {
   ErrorCode err = animation.begin(payload, len);
   if (err != LS_ERR_NONE) {
     Serial.printf("[upload] rejected, err 0x%02X, maxAlloc %u\n", err,
-                  (unsigned)Animation::maxAnimationBytes());
+                  (unsigned)animation.maxAnimationBytes());
     // No partial allocation is attempted; nothing is loaded (§3.1).
     setState(STATE_ERROR, err);
     return;
