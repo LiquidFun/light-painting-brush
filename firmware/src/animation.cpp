@@ -26,11 +26,17 @@ static uint32_t readU32(const uint8_t* p) {
 }
 
 uint32_t Animation::maxAnimationBytes() const {
-  uint32_t largest = ESP.getMaxAllocHeap();
-  // The loaded buffer came from a single malloc, so freeing it necessarily
-  // yields a contiguous block of exactly that size. Taking the larger of the two
-  // is therefore a guarantee rather than an estimate.
-  if (expected_ > largest) largest = expected_;
+  // begin() frees the loaded animation before it allocates, so that buffer is
+  // part of what the next upload can use. Adding it is an estimate, not a
+  // guarantee: it assumes the freed block coalesces with the free space it was
+  // carved out of, which holds in the normal case but not under fragmentation.
+  //
+  // Being optimistic here is the right way round. The authoritative check lives
+  // in begin(), which runs after reset() and sees the real post-free heap, so
+  // the worst case is an upload that starts and is refused with OUT_OF_MEMORY.
+  // Being pessimistic instead made it impossible to re-upload an animation the
+  // stick was already holding, which is the common case.
+  uint32_t largest = ESP.getMaxAllocHeap() + expected_;
   if (largest <= HEAP_SAFETY_MARGIN) return 0;
   return largest - HEAP_SAFETY_MARGIN;
 }
