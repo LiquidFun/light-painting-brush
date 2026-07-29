@@ -1,0 +1,23 @@
+{
+  "name": "lightstick-server",
+  "private": true,
+  "type": "module",
+  "description": "Static hosting, WebSocket relay and shared project library for the light painting stick.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/index.ts",
+    "dev": "node --watch src/index.ts",
+    "smoke": "node smoke.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  }
+}

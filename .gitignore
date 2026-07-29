@@ -5,6 +5,9 @@ node_modules/
 web/dist/
 firmware/.pio/
 
+# The shared project library lives on the deployed server, not in the repo
+server/data/
+
 # Editor / tooling
 .vscode/
 .idea/

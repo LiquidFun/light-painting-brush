@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+
+    // Node 22.18+ runs TypeScript directly by stripping types, so there is no
+    // build step and imports must carry the real `.ts` extension.
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  // smoke.ts is deliberately left out: it imports the browser's copy of the
+  // protocol, which is typed for the DOM and checked by web/'s own tsconfig.
+  // Running it is the check.
+  "include": ["src"]
+}

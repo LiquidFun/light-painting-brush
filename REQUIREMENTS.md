@@ -143,13 +143,14 @@ progress.
 Control messages are **JSON text frames**. Payload bytes are **binary frames**.
 WebSocket already distinguishes them, so there is no envelope to parse.
 
-Every JSON message has a `t` field naming the type.
+Every JSON message has a `t` field naming the type. `proto` carries the protocol
+version — `2` — and is what makes error `2` below reachable.
 
 **Device → server**
 
 | `t` | Fields | Meaning |
 |---|---|---|
-| `hello` | `deviceId`, `name`, `ledCount`, `maxAnimationBytes`, `fw` | Sent immediately on connect |
+| `hello` | `proto`, `deviceId`, `name`, `ledCount`, `maxAnimationBytes`, `fw` | Sent immediately on connect |
 | `status` | `state`, `error`, `bytesReceived`, `bytesExpected`, `maxAnimationBytes` | On every state change, and every ~64 KB while receiving |
 
 **Client → server**
@@ -157,7 +158,7 @@ Every JSON message has a `t` field naming the type.
 | `t` | Fields | Meaning |
 |---|---|---|
 | `subscribe` | — | Begin receiving `devices` and `status` |
-| `begin` | `deviceId`, `ledCount`, `frameCount`, `fps`, `startDelayMs`, `loop`, `pingPong`, `autoPlay`, `bytes`, `crc32` | Followed by binary frames totalling `bytes` |
+| `begin` | `proto`, `deviceId`, `ledCount`, `frameCount`, `fps`, `startDelayMs`, `loop`, `pingPong`, `autoPlay`, `bytes`, `crc32` | Followed by binary frames totalling `bytes` |
 | `play` / `stop` / `clear` / `identify` | `deviceId` | |
 | `brightness` | `deviceId`, `value` (0–255) | |
 
