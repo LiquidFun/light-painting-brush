@@ -155,7 +155,6 @@ void NetService::begin(TransportHandler* handler) {
   Serial.printf("[net] %u network(s), device %s\n", (unsigned)(sizeof(NETWORKS) / sizeof(NETWORKS[0])),
                 deviceIdBuf);
 
-  ws.setAuthorization(LS_RELAY_USER, LS_RELAY_PASSWORD);
   ws.onEvent(onWsEvent);
   ws.setReconnectInterval(LS_RECONNECT_MIN_MS);
   // Without this a half-open socket after a roam looks like a live one until the
@@ -167,6 +166,12 @@ void NetService::begin(TransportHandler* handler) {
 #else
   ws.begin(LS_RELAY_HOST, LS_RELAY_PORT, LS_RELAY_PATH);
 #endif
+
+  // MUST come after begin*(): begin() clears base64Authorization and
+  // plainAuthorization, so setting credentials first silently sends none and
+  // every handshake comes back 401. onEvent, setReconnectInterval and the
+  // heartbeat intervals survive begin(), which is why only this one moved.
+  ws.setAuthorization(LS_RELAY_USER, LS_RELAY_PASSWORD);
   Serial.printf("[net] relay %s:%u%s (tls %d)\n", LS_RELAY_HOST, (unsigned)LS_RELAY_PORT,
                 LS_RELAY_PATH, LS_RELAY_TLS);
 }
