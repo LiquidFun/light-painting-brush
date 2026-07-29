@@ -118,8 +118,11 @@ the network" from "the network is fine and the server is the problem", which are
 completely different fixes and used to look identical. Over BLE, orange means
 advertising with nothing paired.
 
-It is suppressed for the whole of `startDelayMs` and playback, so it cannot end
-up in the photograph.
+It is suppressed for the whole of `startDelayMs` and playback — and then stays
+dark after the animation ends, until the next command or BOOT press. A long
+exposure outlasts the animation by design, so lighting the dot the moment
+playback finishes paints it into the photograph at wherever the stick happened
+to be. Any interaction means the shutter is shut, so that is what brings it back.
 
 ## Gotchas
 

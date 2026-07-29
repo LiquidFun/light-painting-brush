@@ -54,6 +54,13 @@ DeviceState ledShown = STATE_IDLE;
 LinkStage ledLink = LS_LINK_DOWN;
 bool ledValid = false;
 
+// The shutter is almost always still open when an animation ends — that is the
+// whole point of a long exposure. Lighting the status dot the moment playback
+// finishes therefore paints it into the photograph, at wherever the stick
+// happened to be. So after a shot the indicator stays dark until the user does
+// something, which is the only reliable signal that the exposure is over.
+bool ledBlackoutAfterShot = false;
+
 const char* stateName(DeviceState s) {
   switch (s) {
     case STATE_IDLE: return "IDLE";
@@ -159,6 +166,8 @@ void finishUpload() {
 }
 
 void handleControl(uint8_t op, const uint8_t* payload, size_t len) {
+  // Any command means somebody is back at the controls, so the shutter is shut.
+  ledBlackoutAfterShot = false;
   switch (op) {
     case OP_BEGIN_UPLOAD:
       handleBeginUpload(payload, len);
@@ -264,13 +273,14 @@ void pollButton() {
       now - lastButtonMs >= LS_BUTTON_DEBOUNCE_MS) {
     lastButtonMs = now;
     Serial.println("[button] press");
+    ledBlackoutAfterShot = false;
     if (animation.loaded()) startPlayback();
   }
   lastButtonLevel = level;
 }
 
 void updateStatusLed() {
-  bool canShow = !player.exposing() && !player.identifying();
+  bool canShow = !player.exposing() && !player.identifying() && !ledBlackoutAfterShot;
   if (!canShow) {
     ledValid = false;
     return;
@@ -335,7 +345,10 @@ void loop() {
   }
 
   if (player.tick()) {
-    // Playback ended on its own.
+    // Playback ended on its own. The strip is already blank; keep it that way
+    // until the next command or button press, so the indicator cannot reach the
+    // sensor while the exposure is still running.
+    ledBlackoutAfterShot = true;
     setState(STATE_READY);
   }
 
