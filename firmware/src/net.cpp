@@ -33,6 +33,7 @@ constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 6000;
 constexpr uint32_t WIFI_RETRY_MS = 5000;
 
 uint32_t lastWifiAttemptMs = 0;
+uint32_t failedJoins = 0;
 StatusSnapshot lastStatus;
 
 void writeU16(uint8_t* p, uint16_t v) {
@@ -78,11 +79,46 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
   }
 }
 
+const char* wifiStatusName(wl_status_t s) {
+  switch (s) {
+    case WL_IDLE_STATUS: return "idle";
+    case WL_NO_SSID_AVAIL: return "no such SSID in range";
+    case WL_SCAN_COMPLETED: return "scan completed";
+    case WL_CONNECTED: return "connected";
+    case WL_CONNECT_FAILED: return "connect failed (wrong password?)";
+    case WL_CONNECTION_LOST: return "connection lost";
+    case WL_DISCONNECTED: return "disconnected";
+    default: return "?";
+  }
+}
+
+/**
+ * Lists what the radio can actually see. This is the diagnostic that separates
+ * "wrong password" from "that SSID is 5 GHz or hidden" — the ESP32 is 2.4 GHz
+ * only, so a 5 GHz network simply never appears here, and WiFiMulti cannot join
+ * a hidden one because it picks from scan results.
+ */
+void logVisibleNetworks() {
+  int n = WiFi.scanNetworks();
+  if (n <= 0) {
+    Serial.println("[wifi] scan found nothing — is the antenna connected?");
+    return;
+  }
+  Serial.printf("[wifi] %d network(s) visible on 2.4 GHz:\n", n);
+  for (int i = 0; i < n; i++) {
+    Serial.printf("[wifi]   %-32s ch%-3d %4d dBm %s\n", WiFi.SSID(i).c_str(),
+                  WiFi.channel(i), WiFi.RSSI(i),
+                  WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "open" : "encrypted");
+  }
+  WiFi.scanDelete();
+}
+
 /** Ensures a WiFi association. Blocks while scanning, so never call mid-exposure. */
 void ensureWifi(bool& wasUp) {
   if (WiFi.status() == WL_CONNECTED) {
     if (!wasUp) {
       wasUp = true;
+      failedJoins = 0;
       Serial.printf("[wifi] %s, ip %s, rssi %d\n", WiFi.SSID().c_str(),
                     WiFi.localIP().toString().c_str(), WiFi.RSSI());
     }
@@ -92,8 +128,15 @@ void ensureWifi(bool& wasUp) {
   uint32_t now = millis();
   if (now - lastWifiAttemptMs < WIFI_RETRY_MS) return;
   lastWifiAttemptMs = now;
-  Serial.println("[wifi] connecting");
-  wifiMulti.run(WIFI_CONNECT_TIMEOUT_MS);
+
+  wl_status_t status = (wl_status_t)wifiMulti.run(WIFI_CONNECT_TIMEOUT_MS);
+  if (status == WL_CONNECTED) return;
+
+  Serial.printf("[wifi] join failed: %s (status %d)\n", wifiStatusName(status), status);
+  // On the first failure, and then rarely, dump the scan. Once is usually enough
+  // to spot the problem; repeating it every 5 s would bury everything else.
+  if (failedJoins == 0 || failedJoins % 12 == 0) logVisibleNetworks();
+  failedJoins++;
 }
 
 }  // namespace
