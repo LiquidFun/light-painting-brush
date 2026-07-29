@@ -1,11 +1,17 @@
 # Light Painting Stick — Requirements
 
 A 1 m addressable LED bar for long-exposure light painting. Animations are designed
-in a browser, pushed to an ESP32 over Bluetooth LE, held in RAM, and played back on a
-button press while the camera shutter is open.
+in a browser, sent to an ESP32 over WiFi, held in RAM, and played back while the
+camera shutter is open.
 
-This document is the contract between the two halves of the repo. Sections 1–2 are
-binding for both; sections 3 and 4 are per-project.
+This document is the contract between the three parts of the system. Sections 1–3
+are binding for all of them; sections 4–6 are per-part.
+
+> **v2.** v1 pushed animations from the browser over Bluetooth LE. That worked, but
+> it was Chrome-only, required re-pairing before every shot, could only serve one
+> person at a time, and topped out at ~4 kB/s — a 5 s animation took 14 s to send.
+> The BLE implementation is in git history at the initial commit and its wire format
+> is preserved in `PROTOCOL.md` history. Do not extend it.
 
 ---
 
@@ -16,77 +22,99 @@ binding for both; sections 3 and 4 are per-project.
 | MCU | ESP32-WROOM-32 (classic dual-core Xtensa), 30- or 38-pin DevKit board, CH340 USB-serial |
 | LED strip | BTF-LIGHTING WS2812B, 144 LEDs, 1 m, 5 V, single data line |
 | Data pin | `GPIO 13` |
-| Trigger button | `GPIO 0` — the on-board **BOOT** button (no external button purchased) |
+| Trigger button | `GPIO 0` — the on-board **BOOT** button |
 | Power | USB power bank, 5 V, ~3 A, feeding both strip and ESP32 `5V` pin from a common rail |
 | Host OS | Linux (Ubuntu-family) for development |
 
-There is **no flash persistence**. The animation lives in RAM and is lost on power
-cycle. This is intentional — the phone is always present and re-uploads before each
-shot.
+There is **no flash persistence** on the device. The animation lives in RAM and is
+lost on power cycle. The library lives on the server instead, so this costs a
+re-upload rather than the work.
+
+**RAM is the ceiling on animation length**, and WiFi does not change that. At 432
+bytes per frame the WROOM's usable heap holds roughly 460 frames: 18 s at 25 fps,
+30 s at 15 fps. A module with PSRAM (ESP32-WROVER) raises this to minutes and is the
+correct fix when animations need to be longer than that. Streaming (§3.6) is the
+alternative and is deliberately deferred — it makes network jitter visible in the
+photograph.
 
 ---
 
-## 1. Repo layout
+## 1. System shape
+
+Three parts, and the split is forced rather than chosen:
+
+```
+   browser  ──wss──▶  server  ◀──wss──  ESP32
+   (SPA)              (relay)           (device)
+```
+
+A page served over HTTPS **cannot** open a connection directly to an ESP32 on the
+local network: `ws://` from an HTTPS origin is blocked as mixed content, `wss://`
+would need a certificate the device cannot have, and Chrome's Private Network Access
+rules block HTTPS→private-IP regardless. So a hosted SPA must reach the device
+through the server. This is not a design preference; there is no flag-free way
+around it.
+
+The device therefore **dials out** to the server rather than listening. That also
+means no port forwarding, and it works identically on a home network and a phone
+hotspot.
+
+Consequences to accept knowingly:
+
+- **No internet, no shooting.** The SPA and the relay are both remote. This is
+  accepted for the alpha on the basis that shoots happen in populated areas. The
+  escape hatch, if it ever becomes necessary, is the device serving its own copy of
+  the UI over SoftAP — a *separate origin*, not a fallback path in the hosted app.
+- **The server is a single point of failure.** If it is down, nothing works.
+
+---
+
+## 2. Repo layout
 
 ```
 lightstick/
-├── README.md              # setup for both halves, wiring diagram, quickstart
+├── README.md              # setup for all three parts, wiring diagram, quickstart
 ├── REQUIREMENTS.md        # this file
-├── PROTOCOL.md            # extracted copy of §2, the single source of truth
+├── PROTOCOL.md            # extracted copy of §3, the single source of truth
 ├── firmware/
 │   ├── platformio.ini
 │   ├── src/
 │   │   ├── main.cpp
-│   │   ├── protocol.h     # shared constants — must match web/src/ble/protocol.ts
-│   │   ├── ble_service.{h,cpp}
+│   │   ├── protocol.h     # shared constants — must match web/src/transport/protocol.ts
+│   │   ├── net.{h,cpp}    # WiFi provisioning + WebSocket client
 │   │   ├── animation.{h,cpp}
 │   │   └── player.{h,cpp}
+│   └── README.md
+├── server/                # relay + static hosting + project library
+│   ├── src/
 │   └── README.md
 └── web/
     ├── index.html
     ├── package.json
     ├── vite.config.ts
     └── src/
-        ├── model/         # project, keyframes, pure types
-        ├── render/        # interpolation → frame buffer
-        ├── ble/           # Web Bluetooth client + protocol.ts
+        ├── model/         # project, keyframes, layers, pure types
+        ├── render/        # field evaluation → frame buffer
+        ├── transport/     # WebSocket client + protocol.ts
         ├── ui/            # components
         └── main.tsx
 ```
 
-**Use PlatformIO, not the Arduino IDE.** It builds from the CLI
-(`pio run -t upload`), pins library versions in `platformio.ini`, and lives in the
-repo as text — all of which matter when an agent is doing the editing. The Arduino
-IDE is GUI-first and its dependency state lives outside the repo.
+**Use PlatformIO, not the Arduino IDE.** It builds from the CLI, pins library
+versions in `platformio.ini`, and lives in the repo as text.
 
-`platformio.ini` baseline:
-
-```ini
-[env:esp32dev]
-platform = espressif32
-board = esp32dev
-framework = arduino
-monitor_speed = 115200
-lib_deps =
-    fastled/FastLED@^3.7.0
-    h2zero/NimBLE-Arduino@^1.4.2
-build_flags = -DCORE_DEBUG_LEVEL=1
-```
-
-**Use NimBLE, not the default Bluedroid stack.** Bluedroid costs roughly 40–60 KB
-more heap, and heap is the direct limiter on how long an animation can be. This is
-the single highest-leverage decision in the firmware.
+`firmware/src/protocol.h`, `web/src/transport/protocol.ts` and `PROTOCOL.md` describe
+the same messages. A protocol change touches all three in one commit.
 
 ---
 
-## 2. Shared contract
+## 3. Shared contract
 
-### 2.1 Animation wire format
+### 3.1 Animation payload
 
-An animation is a flat array of fully-rendered RGB frames. **All interpolation
-happens in the browser.** The firmware is a dumb player — it does no easing, no
-colour maths, no keyframe evaluation. This keeps the firmware trivial and puts all
-the complexity where floating point and iteration speed are free.
+Unchanged from v1, and deliberately so. An animation is a flat array of
+fully-rendered RGB frames. **All interpolation happens in the browser.** The
+firmware is a dumb player — no easing, no colour maths, no keyframe evaluation.
 
 ```
 payload = frame[0] .. frame[frameCount-1]
@@ -94,192 +122,247 @@ frame   = led[0] .. led[ledCount-1]
 led     = u8 R, u8 G, u8 B      # RGB order on the wire; firmware maps to GRB
 ```
 
-Payload size is `frameCount × ledCount × 3` bytes. At 144 LEDs that is 432 bytes per
-frame.
+Payload size is `frameCount × ledCount × 3`. At 144 LEDs that is 432 bytes per frame.
 
-### 2.2 BLE GATT
+### 3.2 Connections
 
-Device name: `LightStick`
+Both sides open a WebSocket to the server over TLS. Authentication is HTTP Basic,
+enforced by Caddy in front of the application, with one shared password.
 
-```
-Service   9a1e0000-1b2c-4d3e-8f90-a1b2c3d4e5f6
-  Control 9a1e0001-1b2c-4d3e-8f90-a1b2c3d4e5f6   write
-  Data    9a1e0002-1b2c-4d3e-8f90-a1b2c3d4e5f6   write
-  Status  9a1e0003-1b2c-4d3e-8f90-a1b2c3d4e5f6   read, notify
-```
-
-Firmware requests an MTU of 517 on connect. Chunk size is `MTU − 3`, capped at 512.
-
-### 2.3 Control commands
-
-Single write, first byte is the opcode.
-
-| Op | Name | Payload | Effect |
-|---|---|---|---|
-| `0x01` | `BEGIN_UPLOAD` | 20-byte header (§2.4) | Allocate buffer, enter `RECEIVING` |
-| `0x02` | `PLAY` | — | Play the loaded animation |
-| `0x03` | `STOP` | — | Stop, blank the strip |
-| `0x04` | `SET_BRIGHTNESS` | `u8` 0–255 | Global master brightness |
-| `0x05` | `CLEAR` | — | Free buffer, back to `IDLE` |
-| `0x06` | `IDENTIFY` | — | Flash the strip white briefly, ~200 ms |
-| `0x07` | `ABORT_UPLOAD` | — | Discard partial transfer |
-
-### 2.4 Upload header (20 bytes, little-endian)
-
-| Offset | Type | Field |
+| Endpoint | Who | Notes |
 |---|---|---|
-| 0 | `u32` | magic `0x3153504C` (`"LPS1"`) |
-| 4 | `u8` | version = `1` |
-| 5 | `u8` | flags — bit0 `loop`, bit1 `pingPong`, bit2 `autoPlayOnUpload` |
-| 6 | `u16` | `ledCount` |
-| 8 | `u16` | `frameCount` |
-| 10 | `u16` | `fps` |
-| 12 | `u16` | `startDelayMs` — delay between trigger and first frame |
-| 14 | `u32` | `crc32` of the payload |
-| 18 | `u16` | reserved, zero |
+| `wss://<host>/ws/device` | ESP32 | Credentials compiled into the firmware |
+| `wss://<host>/ws/client` | Browser | Credentials supplied by the browser's Basic auth prompt |
 
-### 2.5 Status notification (16 bytes, little-endian)
+The device reconnects with exponential backoff, capped at 30 s. Losing the socket
+must not disturb an animation already loaded in RAM, and must not stop playback in
+progress.
 
-Emitted on every state change, and during upload at least every 4 KB received.
+### 3.3 Message framing
 
-| Offset | Type | Field |
+Control messages are **JSON text frames**. Payload bytes are **binary frames**.
+WebSocket already distinguishes them, so there is no envelope to parse.
+
+Every JSON message has a `t` field naming the type.
+
+**Device → server**
+
+| `t` | Fields | Meaning |
 |---|---|---|
-| 0 | `u8` | state — `0` idle, `1` receiving, `2` ready, `3` playing, `4` error |
-| 1 | `u8` | errorCode (§2.6) |
-| 2 | `u16` | protocol version |
-| 4 | `u32` | bytes received this transfer |
-| 8 | `u32` | bytes expected this transfer |
-| 12 | `u32` | `maxAnimationBytes` — largest payload the device can currently accept |
+| `hello` | `deviceId`, `name`, `ledCount`, `maxAnimationBytes`, `fw` | Sent immediately on connect |
+| `status` | `state`, `error`, `bytesReceived`, `bytesExpected`, `maxAnimationBytes` | On every state change, and every ~64 KB while receiving |
 
-`maxAnimationBytes` is computed from free heap at query time, with a safety margin.
-The web app reads Status immediately on connect and uses this to bound the duration
-slider before the user can design something that won't fit.
+**Client → server**
 
-### 2.6 Error codes
+| `t` | Fields | Meaning |
+|---|---|---|
+| `subscribe` | — | Begin receiving `devices` and `status` |
+| `begin` | `deviceId`, `ledCount`, `frameCount`, `fps`, `startDelayMs`, `loop`, `pingPong`, `autoPlay`, `bytes`, `crc32` | Followed by binary frames totalling `bytes` |
+| `play` / `stop` / `clear` / `identify` | `deviceId` | |
+| `brightness` | `deviceId`, `value` (0–255) | |
+
+**Server → client**
+
+| `t` | Fields | Meaning |
+|---|---|---|
+| `devices` | array of `hello` payloads plus `online` | Sent on subscribe and whenever the set changes |
+| `status` | `deviceId` plus the device's `status` fields | Broadcast to all subscribed clients |
+| `error` | `message` | Human-readable, safe to display verbatim |
+
+### 3.4 Device states
+
+`IDLE` → `RECEIVING` → `READY` → `PLAYING` → `READY`
+
+| Code | State |
+|---|---|
+| `0` | idle — no animation in RAM |
+| `1` | receiving |
+| `2` | ready — animation loaded and verified |
+| `3` | playing |
+| `4` | error |
+
+### 3.5 Errors
 
 | Code | Meaning |
 |---|---|
-| `0x00` | none |
-| `0x01` | out of memory — requested payload exceeds `maxAnimationBytes` |
-| `0x02` | bad magic or unsupported version |
-| `0x03` | CRC mismatch |
-| `0x04` | `ledCount` mismatch with firmware build |
-| `0x05` | transfer timeout (no data for 5 s while `RECEIVING`) |
-| `0x06` | unexpected opcode for current state |
+| `0` | none |
+| `1` | out of memory — payload exceeds `maxAnimationBytes` |
+| `2` | unsupported protocol version |
+| `3` | CRC mismatch |
+| `4` | `ledCount` mismatch with firmware build |
+| `5` | transfer timeout (no data for 10 s while `RECEIVING`) |
+| `6` | unexpected message for current state |
 
-### 2.7 Transfer sequence
+### 3.6 Transfer
 
 ```
-web                              esp32
- |-- BEGIN_UPLOAD + header ------->|  allocate; notify RECEIVING or error
- |<------------- Status ----------|
- |-- chunk 0 (Data, w/ response)-->|
- |-- chunk 1 --------------------->|
- |   ...                           |  notify progress every ~4 KB
- |<------------- Status ----------|
- |-- chunk N --------------------->|  all bytes in → verify CRC32
- |<------------- Status ----------|  READY, or ERROR 0x03
- |-- PLAY ------------------------>|
+client                server                 esp32
+  |-- begin --------->|-- begin ------------->|  allocate; status RECEIVING or error
+  |                   |<----- status ---------|
+  |-- binary chunk -->|-- binary chunk ------>|
+  |   ...             |   ...                 |  status every ~64 KB
+  |-- binary chunk -->|-- binary chunk ------>|  all bytes in → verify crc32
+  |                   |<----- status ---------|  READY, or ERROR 3
+  |-- play ---------->|-- play -------------->|
 ```
 
-Use **write-with-response** for data chunks in v1. At MTU 517 and a typical
-connection interval this gives roughly 15–30 KB/s, which is fine — and it gives
-back-pressure for free, so there is no flow-control logic to get wrong. Only move to
-write-without-response plus a credit scheme if measured throughput proves
-unacceptable.
+The server relays binary frames without buffering the whole payload; it must
+stream, because a 460-frame animation is 200 KB and there may be several clients.
 
-`protocol.h` and `web/src/ble/protocol.ts` must define the same UUIDs, opcodes,
-offsets and error codes. Add a comment at the top of each pointing at the other.
+Chunk size is **4 KB**, chosen so the ESP32 never has to hold a large frame in
+addition to the animation buffer. TCP already guarantees ordering and integrity;
+the `crc32` is an end-to-end check against bugs, not against the network.
+
+Deliberately absent: chunk acknowledgement, credit schemes, retransmission. TCP does
+this. v1's per-chunk round trip is exactly what made it slow.
+
+**Streaming playback is not in scope.** The design, if it is ever needed, is a ring
+buffer on the device, a prebuffer threshold before playback starts, and a buffer-level
+field in `status` so the sender can keep it topped up. The reason to avoid it is that
+a late frame during a 30-second exposure stretches the time axis of the photograph in
+exactly the way an uneven sweep does.
+
+### 3.7 Multiple users
+
+Any subscribed client may upload to, or play, any online device at any time. There is
+no lock and no ownership. Users are assumed cooperative and co-located — they can see
+each other and the stick.
+
+The server broadcasts `status` for every device to every client, so a second person
+uploading is visible rather than silent. A `begin` arriving while a device is
+`RECEIVING` cancels the transfer in progress; the interrupted client sees the state
+change and can retry.
 
 ---
 
-## 3. `firmware/`
+## 4. `firmware/`
 
-### 3.1 Behaviour
+### 4.1 Behaviour
 
-**States:** `IDLE` → `RECEIVING` → `READY` → `PLAYING` → `READY`.
-
-- On boot: init FastLED, blank the strip, start advertising as `LightStick`.
-- Accept exactly **one** animation at a time. A new `BEGIN_UPLOAD` replaces the
-  previous one — free the old buffer before allocating the new one.
+- On boot: init FastLED, blank the strip, join WiFi, connect to the relay.
+- Accept exactly **one** animation at a time. A new `begin` replaces the previous one
+  — free the old buffer before allocating the new one.
 - Allocate with a single `malloc`/`heap_caps_malloc` of the full payload. If it
-  fails, report error `0x01` and stay `IDLE`; do not attempt partial allocation.
-- **Trigger sources**, all equivalent: `PLAY` command over BLE, a press of the BOOT
-  button on `GPIO 0`, or upload completion when the `autoPlayOnUpload` flag is set.
+  fails, report error `1` and stay `IDLE`; do not attempt partial allocation.
+- **Trigger sources**, all equivalent: `play` from the relay, a press of the BOOT
+  button on `GPIO 0`, or upload completion when `autoPlay` is set.
 - Playback: honour `startDelayMs`, then step frames on a `micros()` schedule derived
-  from `fps`. Do not use `delay()` — use a non-blocking timer in `loop()` so BLE and
-  the button stay responsive.
-- Respect `loop` and `pingPong` flags. When neither is set, blank the strip on
-  completion and return to `READY`.
-- A second trigger during playback restarts from frame 0. A `STOP` blanks and returns
+  from `fps`. Never use `delay()` — a non-blocking timer in `loop()` keeps the socket
+  and the button responsive.
+- Respect `loop` and `pingPong`. When neither is set, blank the strip on completion
+  and return to `READY`.
+- A second trigger during playback restarts from frame 0. `stop` blanks and returns
   to `READY` with the buffer intact.
 
-### 3.2 Button handling
+### 4.2 Networking
+
+`WiFiMulti` with several stored SSIDs, tried in order, so the same firmware joins the
+home network or a phone hotspot without reflashing. Credentials, relay host and the
+Basic auth password live in `secrets.h`, which is **gitignored**; commit a
+`secrets.example.h`.
+
+Provisioning is compile-time for the alpha. A captive portal is the right answer once
+more than one person owns a stick, and is out of scope until then.
+
+The radio must not disturb playback. If WiFi activity proves to cause visible
+glitches on the strip, the fix is to quiesce the radio for the duration of the
+exposure — the animation is already in RAM and needs no network to play.
+
+### 4.3 Button handling
 
 `GPIO 0` with `INPUT_PULLUP`, active low, 250 ms debounce via `millis()`.
 
 `GPIO 0` is a strapping pin: held low at power-on it puts the chip into bootloader
-mode. That is harmless here but put a comment in the code saying so, and note it in
-the firmware README, because it will look like a fault to anyone who hits it.
+mode. Harmless here, but comment it in the code and note it in the firmware README,
+because it looks exactly like a fault.
 
-### 3.3 Status LED
+### 4.4 Status LED
 
-When idle and not playing, light **LED 0 only**, dim (brightness ≤ 8), as a state
-indicator: blue = idle, green = ready, red = error. This must be suppressed entirely
-during playback and during `startDelayMs`, or it will appear in the photograph.
-Make it compile-time toggleable via `#define STATUS_LED_ENABLED`.
+When idle and not playing, light **LED 0 only**, dim (brightness ≤ 8): blue = idle,
+green = ready, red = error, and a distinct colour for "no network". Suppressed
+entirely during playback and during `startDelayMs`, or it appears in the photograph.
+Compile-time toggle via `#define STATUS_LED_ENABLED`.
 
-### 3.4 Power safety
+### 4.5 Power safety
 
 ```cpp
-FastLED.setMaxPowerInVoltsAndMilliamps(5, 2200);
+FastLED.setMaxPowerInVoltsAndMilliamps(5, MAX_MILLIAMPS);
 ```
 
-Non-negotiable. FastLED will scale brightness down on any frame that would exceed
-the budget, which makes it impossible for an all-white frame to brown out the ESP32
-mid-exposure. Expose the milliamp figure as a `#define` so it can be raised if a
-better power bank arrives.
+Non-negotiable. FastLED scales brightness down on any frame that would exceed the
+budget, which makes it impossible for an all-white frame to brown out the board
+mid-exposure.
 
-### 3.5 Config constants
+`MAX_MILLIAMPS` is `2200` for a 5 V 3 A power bank. Lower it for bench work off a PC
+USB port — 250 for USB 2.0, 600 for USB 3.0 — and restore it before shooting. The
+figure covers the LEDs only; FastLED knows nothing about the ESP32's own draw, which
+is higher with WiFi than it was with BLE.
 
-Top of `protocol.h`, all `constexpr`:
-`LED_COUNT = 144`, `DATA_PIN = 13`, `BUTTON_PIN = 0`, `MAX_MILLIAMPS = 2200`,
-`DEFAULT_BRIGHTNESS = 80`, `HEAP_SAFETY_MARGIN = 24576`.
+### 4.6 Config constants
 
-### 3.6 Serial logging
+Top of `protocol.h`, all `constexpr`: `LED_COUNT = 144`, `DATA_PIN = 13`,
+`BUTTON_PIN = 0`, `MAX_MILLIAMPS`, `DEFAULT_BRIGHTNESS = 80`,
+`HEAP_SAFETY_MARGIN = 24576`.
 
-Log state transitions, upload progress, CRC results and free heap at 115200 baud.
-This is the only debugging channel in the field.
+### 4.7 Serial logging
+
+State transitions, WiFi and socket events, upload progress, CRC results and free heap
+at 115200 baud.
+
+Note for anyone debugging: the serial monitor holds `/dev/ttyUSB*` exclusively, so
+`pio run -t upload` fails while it is open. The ESP32 ROM bootloader prints at 74880
+baud and looks like garbage at 115200 — that first unreadable line is expected.
 
 ---
 
-## 4. `web/`
+## 5. `server/`
 
-### 4.1 Stack
+Small and boring on purpose. Three jobs:
 
-Vite + React + TypeScript + Tailwind. No backend, no build-time secrets, deployable
-as static files.
+1. **Serve the SPA** as static files.
+2. **Relay** between clients and devices, per §3. Stream binary frames; do not buffer
+   whole payloads.
+3. **Store the project library** — the same JSON the editor already exports.
 
-**Web Bluetooth requires a secure context.** It works on `localhost` for development
-and requires HTTPS in production. If the hosting doesn't terminate TLS, the app
-cannot connect — flag this in the README.
+### 5.1 Library storage
 
-Browser support is genuinely limited and the app must handle it gracefully rather
-than failing silently:
+`GET /api/projects`, `PUT /api/projects/:id`, `DELETE /api/projects/:id`. The schema
+is the versioned export format the editor already uses, so files remain
+interchangeable with local export/import.
 
-| Platform | Support |
-|---|---|
-| Chrome / Edge on Android | Yes |
-| Chrome / Edge on Linux, macOS, Windows | Yes |
-| Firefox, any platform | No |
-| Safari, any platform | No |
-| iOS, any browser | No (WebKit-only rule) — Bluefy is a third-party workaround |
+**There are no user accounts.** One shared Basic auth password means one shared
+library: everyone who can log in sees and can edit everyone's projects. This is a
+consequence of the auth choice, acceptable among friends, and the thing to revisit
+first if the audience widens.
 
-On load, feature-detect `navigator.bluetooth`. If absent, the editor must still work
-fully — design, preview, save, export — with a persistent, dismissible banner
-explaining which browsers can connect. Never block the editor behind the connection.
+Storage is a directory of JSON files. A database is not warranted.
 
-### 4.2 Data model
+### 5.2 Deployment
+
+Caddy terminates TLS and enforces Basic auth for every route, including both
+WebSocket endpoints. The application never sees an unauthenticated request and
+implements no auth of its own.
+
+Rotating the password requires reflashing every device, since it is compiled in.
+Acceptable at one device; the reason to move to per-device tokens later.
+
+---
+
+## 6. `web/`
+
+### 6.1 Stack
+
+Vite + React + TypeScript + Tailwind, served as static files by the server.
+
+Web Bluetooth is gone, and with it the browser restriction. **Every modern browser
+works, including Safari and iOS.** Removing the compatibility banner is part of the
+migration, not a follow-up.
+
+The editor must remain fully usable with no device connected and no device ever
+selected. Designing, previewing, saving and exporting are never gated behind
+hardware.
+
+### 6.2 Data model
 
 ```ts
 type Project = {
@@ -291,27 +374,40 @@ type Project = {
   background: Color         // default black — what the field decays toward
   colorSpace: 'oklab' | 'srgb' | 'hsv-short' | 'hsv-long'
   falloffPower: number      // IDW exponent, 0.5–6, default 2
-  keyframes: Keyframe[]
+  layers: Layer[]           // bottom to top
   playback: { loop: boolean; pingPong: boolean; startDelayMs: number }
+  updatedAt: number
 }
+
+type Layer =
+  | { id: string; kind: 'keyframes'; opacity: number; blend: BlendMode; keyframes: Keyframe[] }
+  | { id: string; kind: 'image';     opacity: number; blend: BlendMode; src: string; fit: 'stretch' | 'contain' | 'cover' }
+  | { id: string; kind: 'pattern';   opacity: number; blend: BlendMode; pattern: Pattern }
 
 type Keyframe = {
   id: string
   kind: 'point' | 'row' | 'column'
   led: number               // 0..ledCount-1   — used by 'point' and 'column'
   timeMs: number            // 0..durationMs   — used by 'point' and 'row'
-  color: Color              // hue/sat, or hex
+  color: Color
   brightness: number        // 0..1, interpolated as its own scalar field
   radius: number            // 0..1, normalised influence radius; default 0.35
-  easing: EasingName        // applied to normalised distance before weighting
+  easing: EasingName
   hard: boolean             // true = nearest-neighbour within radius, hard edge
 }
 ```
 
-`frameCount = round(durationMs / 1000 * fps)`. Show it live in the UI alongside the
-resulting payload size in KB and the device's reported ceiling.
+**Layers are new and they are the reason the other new tools are possible.** v1 had a
+single inverse-distance field, which is the right model for soft washes and the wrong
+one for stripes, waves and images — none of which are expressible as scattered
+keyframes. Adding generators to the existing field would have meant special-casing
+the evaluator for every new tool. A layer stack keeps each generator independent and
+composable, and the existing keyframe field becomes one layer kind among several.
 
-### 4.3 The canvas — this is the product
+Migration: a v1 project loads as a single `keyframes` layer. The storage schema
+version increments and `sanitiseProject` handles the upgrade.
+
+### 6.3 The canvas — this is the product
 
 A 2D field. **X is LED index** — left is LED 0 at the base of the stick, right is
 LED 143 at the tip. **Y is time** — top is t=0, downward is later.
@@ -322,25 +418,19 @@ constant speed with the shutter open and the image on the sensor is this canvas.
 Editing and previewing are the same view. Do not bury this behind a separate
 "preview" mode — the thing being edited *is* the output.
 
-Render by evaluating the field into an `ImageData` of `ledCount × frameCount` and
-`putImageData` onto a canvas scaled to fit. Debounce re-renders to animation frames;
-for 144 × 375 cells this is a few hundred thousand operations and stays interactive
-without WebGL. If it doesn't, move the evaluation to a Web Worker before reaching
-for shaders.
+Render by evaluating the composited layer stack into an `ImageData` of
+`ledCount × frameCount` and `putImageData` onto a canvas scaled to fit. Debounce
+re-renders to animation frames. Longer animations make this heavier than v1; move
+evaluation to a Web Worker before reaching for WebGL.
 
-Overlaid on the canvas:
+Overlaid: keyframe handles in the gutters (points are circles, rows a horizontal line
+with a left-gutter handle, columns a vertical line with a top-gutter handle), a
+draggable playhead, and rulers — LED index along the top, seconds down the left.
 
-- **Keyframe handles.** Points are circles. Rows are a horizontal line with a handle
-  on the left gutter. Columns are a vertical line with a handle in the top gutter.
-  Handles sit in the gutters, not on the image, so they never hide the colours they
-  produce.
-- **Playhead** — a horizontal line at the current preview time, draggable.
-- **Rulers** — LED index along the top, seconds down the left side.
+### 6.4 Interpolation
 
-### 4.4 Interpolation
-
-For each cell `(x, y)` normalise to `u = x/(ledCount-1)`, `v = timeMs/durationMs`,
-both in `[0,1]`. For each keyframe `k`, distance is:
+Within a `keyframes` layer, for each cell `(x, y)` normalise to
+`u = x/(ledCount-1)`, `v = timeMs/durationMs`, both in `[0,1]`. Distance:
 
 ```
 point:   d = hypot(u - u_k, v - v_k)
@@ -356,85 +446,110 @@ w = (1 - e(t))^p / max(d, 1e-6)^p
 ```
 
 Result is the weighted mean of all keyframe colours, plus the project background at a
-small constant weight so regions outside every keyframe's radius decay to background
-rather than being colonised by the nearest distant keyframe. Brightness interpolates
-as a separate scalar field using the same weights.
+small constant weight so regions outside every radius decay to background rather than
+being colonised by the nearest distant keyframe. Brightness interpolates as a separate
+scalar field using the same weights.
 
 Where `hard` is set, that keyframe wins outright inside its radius instead of
-blending — this is the only way to get a crisp edge out of a distance field, and
-without it the tool can only make soft washes.
+blending — the only way to get a crisp edge out of a distance field.
 
 **Interpolate colour in OKLab by default.** Naive sRGB interpolation between
 complementary colours passes through grey, which looks like a bug in a light-painting
-tool. Offer `hsv-short` for rainbow sweeps and `hsv-long` for full hue rotations,
-and keep `srgb` available so the difference is visible and learnable.
+tool. Offer `hsv-short` for rainbow sweeps and `hsv-long` for full hue rotations, and
+keep `srgb` available so the difference is visible and learnable.
 
-Easing options: `linear`, `ease-in`, `ease-out`, `ease-in-out`, `smoothstep`, `step`.
+Easings: `linear`, `ease-in`, `ease-out`, `ease-in-out`, `smoothstep`, `step`.
 
-Apply **gamma correction (γ ≈ 2.2) at the very end**, after interpolation and
+Apply **gamma correction (γ ≈ 2.2) at the very end**, after compositing and
 immediately before quantising to `u8`. Interpolate in perceptual space, output in
 LED-linear space. Getting this backwards makes every gradient bunch up at one end.
 
-### 4.5 Interaction
+### 6.5 Pattern layers
 
-A four-way segmented tool selector: **Select · Point · Row · Column**.
+Each pattern is a pure function of `(u, v)` returning colour and brightness, so it
+costs nothing to add another.
+
+| Pattern | Parameters |
+|---|---|
+| `stripes` | axis (LED or time), period, duty, two colours, edge softness |
+| `wave` | axis, wavelength, amplitude, phase, speed, colour ramp |
+| `gradient` | angle, colour stops |
+| `noise` | scale, speed, colour ramp |
+| `solid` | colour |
+
+Colour ramps interpolate in the project's colour space, like everything else.
+
+### 6.6 Image layers
+
+Import a bitmap and map it onto `ledCount × frameCount`. The image's X becomes LED
+index and its Y becomes time, which means **the imported picture is what the
+photograph will look like** — the same promise the canvas makes.
+
+- Resample with area averaging, not nearest neighbour; the target is usually much
+  smaller than the source and nearest neighbour aliases badly.
+- Decode as sRGB and convert to the working space before compositing. Do not feed
+  gamma-encoded bytes into the field.
+- Offer `stretch`, `contain` and `cover` fitting.
+- Store the image in the project as a data URL so a project remains one
+  self-contained JSON file, and warn when this makes the file large.
+
+### 6.7 Interaction
+
+A segmented tool selector: **Select · Point · Row · Column**, plus a layer list for
+adding pattern and image layers.
 
 | Gesture | Result |
 |---|---|
-| Tap canvas with a create tool active | Add keyframe of that kind at the tapped position, select it, open the editor sheet |
+| Tap canvas with a create tool active | Add keyframe of that kind, select it, open the editor sheet |
 | Tap a handle | Select, open the editor sheet |
 | Drag a handle | Move. Points move in both axes; rows only in time; columns only in LED index |
 | Long-press a handle | Context menu — duplicate, delete, copy colour |
-| Pinch | Zoom the canvas |
+| Pinch | Zoom |
 | Two-finger drag | Pan |
 | Tap empty space with Select active | Deselect |
 
-The editor is a **bottom sheet**, not a sidebar or modal — it must be thumb-reachable
-on a phone and must not cover the canvas region being edited. Contents: colour wheel
-plus hex field, brightness slider, radius slider, easing dropdown, hard-edge toggle,
-exact position fields (LED index and time in ms), delete.
+The editor is a **bottom sheet**, not a sidebar or modal — thumb-reachable on a
+phone, and it must not cover the canvas region being edited.
 
 Undo/redo with a bounded history stack. Bind `Ctrl/Cmd+Z` and expose visible buttons,
 because there is no keyboard on a phone.
 
-### 4.6 Preview
+### 6.8 Preview
 
-Three tiers, all live:
+Three tiers, all live: the canvas itself; a 1D strip bar showing exactly what the
+physical strip displays at the playhead time; and play, which animates the playhead
+at the project fps and drives the bar.
 
-1. **The canvas itself** — the long-exposure preview, always visible.
-2. **A 1D strip bar** — a horizontal bar of `ledCount` cells showing exactly what the
-   physical strip displays at the playhead time. This is the honest "what the LEDs
-   are doing right now" view.
-3. **Play** — animates the playhead in real time at the project fps, driving the 1D
-   bar. Play, pause, scrub, loop toggle.
+### 6.9 Power estimate
 
-### 4.7 Power estimate
+Peak and mean current across the whole animation at 20 mA per lit channel. Display
+peak prominently, warn above the device's configured budget, and offer a one-tap
+"scale brightness to fit". This mirrors the firmware's own clamp, so the user sees on
+screen what the hardware would otherwise do to them silently.
 
-Compute peak and mean current across the whole animation, assuming 20 mA per lit
-channel. Display peak prominently. Warn above 2.2 A and offer a one-tap "scale
-brightness to fit" that finds the largest global multiplier keeping peak under
-budget. This mirrors the firmware's own clamp, so the user sees on screen what the
-hardware would silently do to them otherwise.
+### 6.10 Device panel
 
-### 4.8 Device panel
+A **list** of devices reported by the relay, not a connect button: name, online
+state, current device state, `maxAnimationBytes`. Selecting one targets it.
 
-Connect · device name · state · `maxAnimationBytes` · upload with progress bar ·
-Play · Stop · master brightness slider · Identify · Disconnect.
+Per device: upload with progress, Play, Stop, Identify, master brightness,
+`startDelayMs`. Disable Upload when the payload exceeds the reported ceiling and say
+by how much.
 
-Disable Upload when the payload exceeds the reported ceiling, and say by how much.
-Surface the `startDelayMs` control here rather than in project settings — it is a
-shooting parameter, not a design one.
+Because any client may act at any time (§3.7), the panel reflects broadcast state
+rather than local assumption: a device may enter `RECEIVING` because somebody else
+started an upload, and the UI must show that rather than contradict it.
 
-Handle disconnection mid-upload by returning to a clean state and offering a retry
-that restarts the transfer from the beginning.
+Show measured upload throughput after each transfer. v1 shipped without it and the
+resulting performance problem took a full debugging session to characterise.
 
-### 4.9 Persistence
+### 6.11 Persistence
 
-`localStorage`: project list, last-opened project, autosave on change with a debounce.
-JSON export and import for a single project, and for the whole library. Version the
-JSON schema from day one.
+Server-side library per §5.1, with `localStorage` as an offline cache and for
+last-opened state. JSON export and import for a single project and for the whole
+library. Version the schema.
 
-### 4.10 Mobile
+### 6.12 Mobile
 
 Portrait is the primary layout and should be designed first:
 
@@ -456,35 +571,31 @@ Portrait is the primary layout and should be designed first:
 ```
 
 - Minimum 44 px touch targets throughout.
-- No hover-only affordances — everything reachable by tap.
+- No hover-only affordances.
 - `touch-action: none` on the canvas so panning doesn't trigger pull-to-refresh.
 - Respect `env(safe-area-inset-*)`.
 - Landscape and desktop: canvas grows, the bottom sheet becomes a right-hand panel,
-  the same components in a different arrangement. Do not build two UIs.
+  the same components rearranged. Do not build two UIs.
 
-### 4.11 Design direction
+### 6.13 Design direction
 
 **The interface has no accent colour.** Every saturated pixel on screen belongs to
 the user's animation. Chrome is neutral — a dark, slightly cool grey scale, with
 state carried by weight, border and fill rather than hue. Any brand colour would
-compete with the artwork and corrupt the user's read of their own gradient, which
-in a colour-editing tool is a functional defect rather than a stylistic preference.
-This constraint is the app's signature; hold it everywhere.
+compete with the artwork and corrupt the user's read of their own gradient, which in
+a colour-editing tool is a functional defect rather than a stylistic preference. This
+constraint is the app's signature; hold it everywhere.
 
 Dark by default, and not as a trend: this gets used outdoors at night, and a bright
 screen destroys both night vision and the exposure. Include a **night mode** that
-drops overall luminance further and shifts chrome toward deep red — genuinely useful
-on a shoot, and a natural extension of the same reasoning.
+drops luminance further and shifts chrome toward deep red.
 
-Typography: a technical grotesque for UI, and a monospace for all numerics — LED
-indices, frame counts, milliseconds, byte sizes. Numbers in this tool are coordinates,
-and tabular figures let the eye compare them down a column. Avoid Inter as the
-display face; consider Archivo, Space Grotesk or Basis if available, paired with
-JetBrains Mono.
+Typography: a technical grotesque for UI, monospace for all numerics — LED indices,
+frame counts, milliseconds, byte sizes. Numbers here are coordinates, and tabular
+figures let the eye compare them down a column.
 
-Motion: only where it explains something. The playhead moves, the bottom sheet
-slides, upload progress advances. Nothing else animates. Respect
-`prefers-reduced-motion`.
+Motion: only where it explains something. The playhead moves, the sheet slides,
+progress advances. Nothing else animates. Respect `prefers-reduced-motion`.
 
 Copy: name things by what the user controls. "LED 47" not "index 47". "2.4 s" not
 "frame 60". Errors state what happened and what to do — "Animation is 34 KB over the
@@ -492,44 +603,50 @@ device limit. Shorten to 4.1 s or drop to 20 fps."
 
 ---
 
-## 5. Build order
+## 7. Build order
 
-Each milestone should be independently verifiable, because the failure modes are
-hardware and browser quirks that are much easier to isolate one at a time.
+Each milestone independently verifiable. The ordering puts the transport-independent
+features first, because they carry none of the migration risk and deliver most of the
+value — and they keep working if the migration stalls.
 
 | # | Deliverable | Verified by |
 |---|---|---|
-| M0 | Repo scaffold, `PROTOCOL.md`, both projects building empty | `pio run` and `npm run build` both pass |
-| M1 | Firmware: hardcoded rainbow sweep on `GPIO 13`, no BLE | Strip lights up — proves wiring, colour order, power |
-| M2 | Firmware: BLE service, upload, CRC, play on BOOT press | A throwaway HTML page that uploads a 2-frame animation |
-| M3 | Web: model, interpolation, canvas, keyframe editing, no BLE | Design a gradient, see it render, save and reload it |
-| M4 | Web: device panel, real upload, play | Full loop from phone to stick |
-| M5 | Power estimate, night mode, undo, export/import, polish | — |
+| M0 | Layer model, v1 project migration | Existing projects load unchanged as one keyframe layer |
+| M1 | Pattern layers — stripes, wave, gradient | Design a striped sweep with no keyframes |
+| M2 | Image layers | Import a photo, see it on the canvas and the strip bar |
+| M3 | `server/`: static hosting, Caddy Basic auth, project library API | Save on desktop, open on phone |
+| M4 | `server/`: relay; `web/`: transport swap behind an interface | Device list appears; BLE code deleted |
+| M5 | Firmware: WiFi + WebSocket client, upload, CRC, play | Full loop from phone to stick over WiFi |
+| M6 | Throughput measurement, longer durations, power/night polish | Measured upload rate shown in the UI |
 
-M1 exists specifically to separate "my wiring is wrong" from "my BLE code is wrong".
-Do not skip it.
+Keep the BLE transport working until M4 lands. Put a `Transport` interface in front
+of it at M4 rather than editing call sites twice, and delete BLE only once WiFi
+carries a real upload.
+
+M5 needs a wiring sanity check to remain available: keep the `m1_selftest`
+environment that lights a rainbow with no networking at all. It is the only cheap way
+to tell "my wiring is wrong" from "my network code is wrong".
 
 ---
 
-## 6. Known constraints and gotchas
+## 8. Known constraints and gotchas
 
-**RAM is the ceiling on animation length.** With NimBLE and FastLED, expect roughly
-120–160 KB of usable heap. At 432 bytes per frame that is 280–370 frames — about
-11–15 seconds at 25 fps. The firmware reports its real figure in `maxAnimationBytes`;
-the web app must trust that number over any hardcoded estimate.
+**RAM is the ceiling on animation length.** Roughly 460 frames on a WROOM — 18 s at
+25 fps. The firmware reports its real figure in `maxAnimationBytes`; the web app must
+trust that number over any local estimate. PSRAM is the fix for minutes-long
+animations.
 
-**Power bank auto-shutoff will lose the animation.** Many banks cut output below
-~50–100 mA, and RAM-only storage means the animation dies with it. The ESP32's own
-draw usually prevents this, but if it happens in the field the fix is a keep-alive:
-one LED lit at brightness 1. Worth a firmware `#define`. If it becomes a recurring
-annoyance, NVS persistence is the real fix — deliberately out of scope for v1.
+**Compression is available if the wire ever becomes the constraint again.** Measured
+on real payloads: deflate gives 8.3× on a 5 s animation and 16.8× on a 20 s one;
+frame-to-frame delta plus deflate gives 9.6× and 29.4×. It does **not** extend
+animation length, because the device must hold the decompressed frames to play them.
+On WiFi it is unlikely to be needed.
 
 **3.3 V data into a 5 V strip is out of spec** and works anyway on most hardware. If
-LED 0 misbehaves or the strip shows confetti, that is the cause, not the code. Rule
-it out before debugging software.
+LED 0 misbehaves or the strip shows confetti, that is the cause, not the code.
 
 **WS2812B is GRB.** FastLED handles it via the template parameter; the wire format in
-§2.1 stays RGB. Don't swap it in two places.
+§3.1 stays RGB. Don't swap it in two places.
 
 **`GPIO 0` held low at power-on** enters bootloader mode. Expected, documented, still
 confusing the first time.
@@ -538,6 +655,22 @@ confusing the first time.
 its udev rule disabled — it claims CH340 devices and makes `/dev/ttyUSB0` vanish a
 second after appearing. This looks exactly like a dead board.
 
-**Chunk size must derive from the negotiated MTU**, not a constant. MTU negotiation
-can fail or land lower than requested; a hardcoded 512 will then silently truncate
-every write.
+**Power bank auto-shutoff will lose the animation.** Many banks cut output below
+~50–100 mA. The ESP32's own draw usually prevents it, and WiFi makes that draw
+higher, so this is less likely than it was with BLE.
+
+**WiFi radio activity can disturb WS2812 timing.** Test before trusting a shot.
+
+---
+
+## 9. Out of scope for the alpha
+
+Recorded here so they are decisions rather than omissions:
+
+- **SoftAP offline mode.** Accepted risk: no internet means no shooting.
+- **Per-user accounts.** One shared password, one shared library.
+- **Session locks.** Users are assumed cooperative.
+- **Per-device tokens.** One password compiled into every stick.
+- **Streaming playback.** Deferred in favour of PSRAM (§0).
+- **Runtime WiFi provisioning.** Credentials are compile-time.
+- **Compression.** Unnecessary at WiFi speeds.
