@@ -43,7 +43,6 @@ export type Transport = {
   lastUpload: UploadStats | null
   error: string | null
   clearError: () => void
-  masterBrightness: number
   setMasterBrightness: (value: number) => void
   upload: (payload: Uint8Array, options: UploadOptions) => Promise<boolean>
   cancelUpload: () => void

@@ -4,8 +4,15 @@
 import { useRef, useState } from 'react'
 
 import { formatBytes } from '../model/project'
-import { BLEND_MODES } from '../model/types'
-import type { BlendMode, ImageFit, Layer, LayerKind, Project } from '../model/types'
+import { BLEND_MODES, IMAGE_ROTATIONS } from '../model/types'
+import type {
+  BlendMode,
+  ImageFit,
+  ImageRotation,
+  Layer,
+  LayerKind,
+  Project,
+} from '../model/types'
 import { importImageFile } from '../render/imageCache'
 import { PatternEditor } from './PatternEditor'
 import { Button, Field, IconButton, Panel, Row, Segmented, Slider, Toggle } from './primitives'
@@ -246,6 +253,33 @@ export function LayerPanel({
                 value={active.fit}
                 onChange={(fit) => onUpdate(active.id, { fit })}
               />
+              <Field
+                label="Rotate"
+                hint="Applied before the fit, so a quarter turn refits rather than cropping."
+              >
+                <Segmented
+                  label="Rotate"
+                  options={IMAGE_ROTATIONS.map((r) => ({ id: String(r.id), label: r.label }))}
+                  value={String(active.rotation)}
+                  onChange={(id) =>
+                    onUpdate(active.id, { rotation: Number(id) as ImageRotation })
+                  }
+                />
+              </Field>
+              <Row>
+                <Button
+                  active={active.flipX}
+                  onClick={() => onUpdate(active.id, { flipX: !active.flipX })}
+                >
+                  Flip across LEDs
+                </Button>
+                <Button
+                  active={active.flipY}
+                  onClick={() => onUpdate(active.id, { flipY: !active.flipY })}
+                >
+                  Flip along time
+                </Button>
+              </Row>
               <p className="text-xs text-mute">
                 The image is resampled to {project.ledCount} LEDs across by the frame count
                 down, so its aspect ratio has nothing to do with the photograph's.

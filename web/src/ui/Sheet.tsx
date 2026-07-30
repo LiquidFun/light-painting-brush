@@ -6,7 +6,7 @@
 
 import type { ReactNode } from 'react'
 
-export type SheetTab = 'keyframe' | 'layers' | 'device' | 'project'
+export type SheetTab = 'project' | 'library' | 'layers' | 'keyframe' | 'device'
 
 export function Sheet({
   open,
@@ -21,11 +21,13 @@ export function Sheet({
   onClose: () => void
   children: ReactNode
 }) {
+  // Ordered by how often you reach for them, left to right.
   const tabs: { id: SheetTab; label: string }[] = [
-    { id: 'keyframe', label: 'Keyframe' },
-    { id: 'layers', label: 'Layers' },
-    { id: 'device', label: 'Device' },
     { id: 'project', label: 'Project' },
+    { id: 'library', label: 'Library' },
+    { id: 'layers', label: 'Layers' },
+    { id: 'keyframe', label: 'Keyframe' },
+    { id: 'device', label: 'Device' },
   ]
 
   return (

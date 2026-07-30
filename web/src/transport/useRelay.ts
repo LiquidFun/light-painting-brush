@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { DEFAULT_MASTER_BRIGHTNESS } from './protocol'
 import type { DeviceEntry, UploadOptions } from './protocol'
 import { RelayClient } from './relay'
 import type { LinkState, Transport, UploadProgress, UploadStats } from './types'
@@ -18,7 +17,6 @@ export function useRelay(enabled: boolean): Transport {
   const [lastUpload, setLastUpload] = useState<UploadStats | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [masterBrightness, setBrightnessValue] = useState(DEFAULT_MASTER_BRIGHTNESS)
 
   const client = useMemo(
     () =>
@@ -83,7 +81,6 @@ export function useRelay(enabled: boolean): Transport {
 
   const setMasterBrightness = useCallback(
     (value: number) => {
-      setBrightnessValue(value)
       if (selectedId) client.setBrightness(selectedId, value)
     },
     [client, selectedId],
@@ -106,7 +103,6 @@ export function useRelay(enabled: boolean): Transport {
     lastUpload,
     error,
     clearError: () => setError(null),
-    masterBrightness,
     setMasterBrightness,
     upload,
     cancelUpload: () => client.cancelUpload(),

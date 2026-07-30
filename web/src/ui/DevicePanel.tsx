@@ -67,17 +67,12 @@ function DeviceRow({
 export function DevicePanel({
   transport,
   project,
-  autoPlay,
-  onAutoPlayChange,
   onPatchProject,
   onUpload,
   onTransportKind,
 }: {
   transport: Transport
   project: Project
-  /** Sets the autoPlay flag on the next upload. A shooting option, so not saved with the design. */
-  autoPlay: boolean
-  onAutoPlayChange: (value: boolean) => void
   onPatchProject: (patch: Partial<Project>, push?: boolean) => void
   onUpload: () => void
   onTransportKind: (kind: 'relay' | 'ble') => void
@@ -244,14 +239,20 @@ export function DevicePanel({
           )}
         </Row>
 
+        {/* Saved with the project: how bright a design should be belongs to the
+            design, and it is the first thing you reach for after a blown-out
+            shot. Sent to the stick as it moves so the strip tracks the slider. */}
         <Slider
           label="Master brightness"
-          value={transport.masterBrightness}
+          value={project.brightness}
           min={0}
           max={255}
-          display={String(transport.masterBrightness)}
-          disabled={!ready}
-          onChange={transport.setMasterBrightness}
+          display={String(project.brightness)}
+          onCommitStart={() => onPatchProject({}, true)}
+          onChange={(brightness) => {
+            onPatchProject({ brightness }, false)
+            transport.setMasterBrightness(brightness)
+          }}
         />
 
         <Field
@@ -275,8 +276,10 @@ export function DevicePanel({
         <Toggle
           label="Play on upload"
           hint="Fires as soon as the transfer verifies."
-          checked={autoPlay}
-          onChange={onAutoPlayChange}
+          checked={project.playback.autoPlay}
+          onChange={(autoPlay) =>
+            onPatchProject({ playback: { ...project.playback, autoPlay } })
+          }
         />
 
         <p className="text-xs text-mute">

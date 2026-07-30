@@ -388,18 +388,20 @@ type Project = {
   name: string
   ledCount: number          // 144
   durationMs: number        // default 5000
-  fps: number               // 25 default; any integer 5-120
+  fps: number               // 60 default; any integer 5-120
   background: Color         // default black — what the field decays toward
   colorSpace: 'oklab' | 'srgb' | 'hsv-short' | 'hsv-long'
   falloffPower: number      // IDW exponent, 0.5–6, default 2
   layers: Layer[]           // bottom to top
-  playback: { loop: boolean; pingPong: boolean; startDelayMs: number }
+  playback: { loop: boolean; pingPong: boolean; startDelayMs: number; autoPlay: boolean }
+  brightness: number        // 0-255 master, sent to the stick
   updatedAt: number
 }
 
 type Layer =
   | { id: string; kind: 'keyframes'; opacity: number; blend: BlendMode; keyframes: Keyframe[] }
-  | { id: string; kind: 'image';     opacity: number; blend: BlendMode; src: string; fit: 'stretch' | 'contain' | 'cover' }
+  | { id: string; kind: 'image';     opacity: number; blend: BlendMode; src: string; fit: 'stretch' | 'contain' | 'cover'; rotation: 0|90|180|270; flipX: boolean; flipY: boolean }
+  | { id: string; kind: 'paint';     opacity: number; blend: BlendMode; src: string }
   | { id: string; kind: 'pattern';   opacity: number; blend: BlendMode; pattern: Pattern }
 
 type Keyframe = {

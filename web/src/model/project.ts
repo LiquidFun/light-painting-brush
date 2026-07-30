@@ -10,7 +10,7 @@ import type {
   PatternKind,
   Project,
 } from './types'
-import { BRIGHTNESS_POINTS, MIN_FPS } from './types'
+import { BRIGHTNESS_POINTS, DEFAULT_MASTER_BRIGHTNESS, MIN_FPS } from './types'
 
 export const DEFAULT_LED_COUNT = 144
 export const BYTES_PER_LED = 3
@@ -52,14 +52,18 @@ export function createProject(name = 'Untitled'): Project {
     name,
     ledCount: DEFAULT_LED_COUNT,
     durationMs: 5000,
-    fps: 25,
+    fps: 60,
     background: '#000000',
     colorSpace: 'oklab',
     falloffPower: 2,
     layers: [],
     brightnessX: flatCurve(),
     brightnessY: flatCurve(),
-    playback: { loop: false, pingPong: false, startDelayMs: 0 },
+    // Loop and ping-pong on by default: a sweep usually wants the pattern to
+    // keep coming, and stopping is the BOOT button. autoPlay because uploading
+    // and then reaching for Play is two steps for one intention.
+    playback: { loop: true, pingPong: true, startDelayMs: 0, autoPlay: true },
+    brightness: DEFAULT_MASTER_BRIGHTNESS,
     updatedAt: Date.now(),
   }
 }
@@ -176,7 +180,15 @@ export function createLayer(kind: LayerKind, name?: string): Layer {
     case 'pattern':
       return { ...base, kind: 'pattern', pattern: defaultPattern('stripes') }
     case 'image':
-      return { ...base, kind: 'image', src: '', fit: 'stretch' }
+      return {
+        ...base,
+        kind: 'image',
+        src: '',
+        fit: 'stretch',
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+      }
     case 'paint':
       return { ...base, kind: 'paint', src: '' }
   }
@@ -216,20 +228,15 @@ export function activePaintLayer(p: Project, id: string | null): PaintLayer | nu
  * A starter animation, so a new project is not a black rectangle. Brightness is
  * deliberately below 1 so the first thing a user sees is inside the power budget.
  */
+/**
+ * A new project starts with one empty keyframe layer and nothing in it.
+ *
+ * It used to seed three coloured points, on the theory that a black rectangle is
+ * an unhelpful first impression. In practice they were something to delete
+ * before every single new project, which is worse.
+ */
 export function seedProject(p: Project): Project {
-  const mid = Math.floor((p.ledCount - 1) / 2)
-  const seed = (led: number, timeMs: number, color: string) => ({
-    ...createKeyframe('point', led, timeMs, color),
-    radius: 0.45,
-    brightness: 0.7,
-  })
-  const layer = createLayer('keyframes') as KeyframeLayer
-  layer.keyframes = [
-    seed(0, 0, '#ff2d00'),
-    seed(mid, p.durationMs / 2, '#00d0ff'),
-    seed(p.ledCount - 1, p.durationMs, '#ffd400'),
-  ]
-  return { ...p, layers: [layer] }
+  return { ...p, layers: [createLayer('keyframes')] }
 }
 
 // --- formatting (copy rules from REQUIREMENTS §4.11) ------------------------

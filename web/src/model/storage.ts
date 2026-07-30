@@ -20,6 +20,8 @@ import {
 import {
   BLEND_MODES,
   BRIGHTNESS_POINTS,
+  DEFAULT_MASTER_BRIGHTNESS,
+  IMAGE_ROTATIONS,
   EASING_NAMES,
   MAX_FPS,
   MIN_FPS,
@@ -30,6 +32,7 @@ import type {
   ColorRamp,
   EasingName,
   ImageFit,
+  ImageRotation,
   Keyframe,
   KeyframeKind,
   Layer,
@@ -244,7 +247,18 @@ function sanitiseLayer(raw: unknown, project: Project): Layer | null {
     const src = typeof raw.src === 'string' && raw.src.startsWith('data:image/') ? raw.src : ''
     const fit: ImageFit =
       raw.fit === 'contain' || raw.fit === 'cover' ? raw.fit : 'stretch'
-    return { ...base, kind, src, fit }
+    const rotation = IMAGE_ROTATIONS.some((r) => r.id === raw.rotation)
+      ? (raw.rotation as ImageRotation)
+      : 0
+    return {
+      ...base,
+      kind,
+      src,
+      fit,
+      rotation,
+      flipX: bool(raw.flipX, false),
+      flipY: bool(raw.flipY, false),
+    }
   }
 
   const list = Array.isArray(raw.keyframes) ? raw.keyframes : []
@@ -276,6 +290,8 @@ export function sanitiseProject(raw: unknown): Project {
   const base = createProject()
   if (!isObject(raw)) return base
 
+  // 25 for a file that predates the free rate, not the new default: an existing
+  // project must not change speed because the default moved.
   const fps = Math.round(clamp(num(raw.fps, 25), MIN_FPS, MAX_FPS))
   const playback = isObject(raw.playback) ? raw.playback : {}
 
@@ -299,10 +315,15 @@ export function sanitiseProject(raw: unknown): Project {
     brightnessX: curve(raw.brightnessX),
     brightnessY: curve(raw.brightnessY),
     playback: {
+      // Existing projects keep what they had; only new ones get the new
+      // defaults, which is why these fall back to false rather than to
+      // createProject's values.
       loop: bool(playback.loop, false),
       pingPong: bool(playback.pingPong, false),
       startDelayMs: Math.round(clamp(num(playback.startDelayMs, 0), 0, 65535)),
+      autoPlay: bool(playback.autoPlay, false),
     },
+    brightness: Math.round(clamp(num(raw.brightness, DEFAULT_MASTER_BRIGHTNESS), 0, 255)),
     updatedAt: num(raw.updatedAt, Date.now()),
   }
 

@@ -20,6 +20,7 @@ import { Header } from './ui/Header'
 import { KeyframeEditor } from './ui/KeyframeEditor'
 import { LayerPanel } from './ui/LayerPanel'
 import { PowerPanel } from './ui/PowerPanel'
+import { LibraryPanel } from './ui/LibraryPanel'
 import { ProjectPanel } from './ui/ProjectPanel'
 import { Sheet } from './ui/Sheet'
 import type { SheetTab } from './ui/Sheet'
@@ -38,7 +39,6 @@ export default function App() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetTab, setSheetTab] = useState<SheetTab>('project')
   const [menu, setMenu] = useState<ContextTarget | null>(null)
-  const [autoPlay, setAutoPlay] = useState(false)
   const [lastColor, setLastColor] = useState('#ffffff')
   const [showCurves, setShowCurves] = useState(false)
   const [dropping, setDropping] = useState(false)
@@ -74,9 +74,12 @@ export default function App() {
       startDelayMs: project.playback.startDelayMs,
       loop: project.playback.loop,
       pingPong: project.playback.pingPong,
-      autoPlay,
+      autoPlay: project.playback.autoPlay,
     })
-  }, [autoPlay, transport, field, project])
+    // The stick keeps whatever brightness it was last told; make it match the
+    // project rather than the previous upload's.
+    transport.setMasterBrightness(project.brightness)
+  }, [transport, field, project])
 
   /**
    * Dropping a picture anywhere on the editor adds it as an image layer. Going
@@ -287,12 +290,22 @@ export default function App() {
           />
         )}
 
+        {sheetTab === 'library' && (
+          <LibraryPanel
+            project={project}
+            library={editor.library}
+            librarySync={editor.librarySync}
+            onOpen={editor.openProject}
+            onNew={editor.newProject}
+            onDelete={editor.deleteProject}
+            onImport={editor.importProjects}
+          />
+        )}
+
         {sheetTab === 'device' && (
           <DevicePanel
             transport={transport}
             project={project}
-            autoPlay={autoPlay}
-            onAutoPlayChange={setAutoPlay}
             onPatchProject={editor.patchProject}
             onUpload={() => void upload()}
             onTransportKind={(kind) => setPrefs((p) => ({ ...p, transport: kind }))}
@@ -303,16 +316,10 @@ export default function App() {
           <>
             <ProjectPanel
               project={project}
-              library={editor.library}
-              librarySync={editor.librarySync}
               maxAnimationBytes={transport.maxAnimationBytes}
               night={prefs.night}
               onNightChange={(night) => setPrefs((p) => ({ ...p, night }))}
               onPatch={editor.patchProject}
-              onOpen={editor.openProject}
-              onNew={editor.newProject}
-              onDelete={editor.deleteProject}
-              onImport={editor.importProjects}
             />
             <PowerPanel field={field} project={project} onPatch={editor.patchProject} />
           </>

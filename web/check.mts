@@ -16,6 +16,7 @@ import {
   isFlatCurve,
   payloadBytes,
   sampleCurve,
+  seedProject,
 } from './src/model/project'
 import { sanitiseProject, SCHEMA_VERSION } from './src/model/storage'
 import { evaluateField, evaluatePreview } from './src/render/field'
@@ -252,6 +253,39 @@ ok('period = full strip does not repeat',
        `${suggested} fps -> ${payloadBytes({ ...big, fps: suggested })} of ${limit}`)
     ok('the suggested rate is below the current one', suggested < big.fps)
   }
+}
+
+
+// --- project defaults and new fields --------------------------------------
+{
+  const fresh = createProject('n')
+  ok('new projects default to 60 fps', fresh.fps === 60, String(fresh.fps))
+  ok('new projects loop, ping-pong and auto-play',
+     fresh.playback.loop && fresh.playback.pingPong && fresh.playback.autoPlay)
+  ok('new projects carry a brightness', fresh.brightness === 80, String(fresh.brightness))
+  ok('a new project starts empty',
+     seedProject(fresh).layers.length === 1 &&
+     (seedProject(fresh).layers[0] as any).keyframes.length === 0)
+
+  // An existing file must not change behaviour because a default moved.
+  const old = sanitiseProject({ id: 'o', name: 'old', layers: [] })
+  ok('an old project keeps 25 fps', old.fps === 25, String(old.fps))
+  ok('an old project does not gain loop/pingPong/autoPlay',
+     !old.playback.loop && !old.playback.pingPong && !old.playback.autoPlay)
+  ok('a missing brightness defaults to 80', old.brightness === 80)
+  ok('brightness clamps', sanitiseProject({ ...fresh, brightness: 9000 }).brightness === 255)
+
+  // Image orientation
+  const img = sanitiseProject({
+    ...fresh,
+    layers: [{ id: 'i', kind: 'image', name: 'I', opacity: 1, blend: 'normal', hidden: false,
+               src: 'data:image/png;base64,x', fit: 'cover', rotation: 270, flipX: true }],
+  }).layers[0] as any
+  ok('image rotation survives', img.rotation === 270 && img.flipX === true && img.flipY === false)
+  ok('a junk rotation falls back to 0',
+     (sanitiseProject({ ...fresh, layers: [{ id: 'i', kind: 'image', name: 'I', opacity: 1,
+       blend: 'normal', hidden: false, src: '', fit: 'cover', rotation: 45 }] }).layers[0] as any)
+       .rotation === 0)
 }
 
 console.log(out.join('\n'))

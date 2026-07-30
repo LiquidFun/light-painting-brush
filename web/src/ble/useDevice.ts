@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { DEFAULT_MASTER_BRIGHTNESS, DeviceState } from '../transport/protocol'
+import { DeviceState } from '../transport/protocol'
 import type { DeviceEntry, UploadOptions } from '../transport/protocol'
 import type { LinkState, Transport, UploadProgress, UploadStats } from '../transport/types'
 import { LightStickClient, isSupported } from './client'
@@ -48,7 +48,6 @@ export function useDevice(): Transport {
   const [lastUpload, setLastUpload] = useState<UploadStats | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [masterBrightness, setBrightnessValue] = useState(DEFAULT_MASTER_BRIGHTNESS)
 
   const client = useMemo(
     () =>
@@ -132,9 +131,7 @@ export function useDevice(): Transport {
     lastUpload,
     error,
     clearError: () => setError(null),
-    masterBrightness,
     setMasterBrightness: (value: number) => {
-      setBrightnessValue(value)
       if (client.connected) run(() => client.setBrightness(value))
     },
     upload,

@@ -54,6 +54,8 @@ export type Playback = {
   pingPong: boolean
   /** Delay between trigger and first frame. A shooting parameter, not a design one. */
   startDelayMs: number
+  /** Fire as soon as the transfer verifies, without a separate Play. */
+  autoPlay: boolean
 }
 
 // --- layers (REQUIREMENTS §6.2) --------------------------------------------
@@ -136,6 +138,16 @@ export const PATTERN_KINDS: { id: PatternKind; label: string }[] = [
 
 export type ImageFit = 'stretch' | 'contain' | 'cover'
 
+/** Quarter turns clockwise, applied before the fit. */
+export type ImageRotation = 0 | 90 | 180 | 270
+
+export const IMAGE_ROTATIONS: { id: ImageRotation; label: string }[] = [
+  { id: 0, label: '0°' },
+  { id: 90, label: '90°' },
+  { id: 180, label: '180°' },
+  { id: 270, label: '270°' },
+]
+
 type LayerBase = {
   id: string
   name: string
@@ -152,6 +164,9 @@ export type ImageLayer = LayerBase & {
   /** Data URL, so a project stays one self-contained JSON file. */
   src: string
   fit: ImageFit
+  rotation: ImageRotation
+  flipX: boolean
+  flipY: boolean
 }
 
 /**
@@ -196,6 +211,12 @@ export type Project = {
   brightnessX: number[]
   brightnessY: number[]
   playback: Playback
+  /**
+   * Master brightness 0-255, sent to the stick. Per project rather than per
+   * session: how bright a design should be is a property of the design, and it
+   * is the first thing you reach for when a shot comes out blown out.
+   */
+  brightness: number
   /** Epoch ms, for sorting the library. */
   updatedAt: number
 }
@@ -213,6 +234,9 @@ export type Project = {
  * photograph's time axis, so the firmware counts frames that miss their slot and
  * says so at the end of playback rather than failing quietly.
  */
+/** Matches DEFAULT_BRIGHTNESS in firmware/src/protocol.h. */
+export const DEFAULT_MASTER_BRIGHTNESS = 80
+
 export const MIN_FPS = 5
 export const MAX_FPS = 120
 

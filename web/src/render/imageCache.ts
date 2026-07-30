@@ -6,7 +6,7 @@
 // with a subscription: `getImage` returns null while the work is in flight and
 // listeners are notified when a result lands.
 
-import type { ImageFit } from '../model/types'
+import type { ImageFit, ImageRotation } from '../model/types'
 
 export type ImageSample = {
   width: number
@@ -22,8 +22,10 @@ const cache = new Map<string, ImageSample | null>()
 const inFlight = new Set<string>()
 const listeners = new Set<() => void>()
 
-const keyOf = (src: string, width: number, height: number, fit: ImageFit) =>
-  `${width}x${height}|${fit}|${src}`
+export type Orientation = { rotation: ImageRotation; flipX: boolean; flipY: boolean }
+
+const keyOf = (src: string, width: number, height: number, fit: ImageFit, o: Orientation) =>
+  `${width}x${height}|${fit}|${o.rotation}|${o.flipX ? 'x' : ''}${o.flipY ? 'y' : ''}|${src}`
 
 function notify() {
   for (const fn of listeners) fn()
@@ -43,14 +45,15 @@ export function getImage(
   width: number,
   height: number,
   fit: ImageFit,
+  orientation: Orientation,
 ): ImageSample | null {
   if (!src) return null
-  const key = keyOf(src, width, height, fit)
+  const key = keyOf(src, width, height, fit, orientation)
   if (cache.has(key)) return cache.get(key) ?? null
   if (inFlight.has(key)) return null
 
   inFlight.add(key)
-  void resample(src, width, height, fit)
+  void resample(src, width, height, fit, orientation)
     .then((sample) => store(key, sample))
     .catch(() => store(key, null))
   return null
@@ -144,15 +147,42 @@ function rects(
   return { ...full, sx: (iw - sw) / 2, sy: (ih - sh) / 2, sw, sh }
 }
 
+/**
+ * Applies rotation and flips before anything else, so `fit` and the downscale
+ * both see the orientation the user asked for. Doing it afterwards would fit the
+ * wrong aspect ratio for a quarter turn.
+ */
+function orient(
+  img: HTMLImageElement,
+  { rotation, flipX, flipY }: Orientation,
+): HTMLImageElement | HTMLCanvasElement {
+  if (rotation === 0 && !flipX && !flipY) return img
+  const iw = img.naturalWidth
+  const ih = img.naturalHeight
+  const turned = rotation === 90 || rotation === 270
+  const canvas = document.createElement('canvas')
+  canvas.width = turned ? ih : iw
+  canvas.height = turned ? iw : ih
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return img
+  ctx.translate(canvas.width / 2, canvas.height / 2)
+  ctx.rotate((rotation * Math.PI) / 180)
+  ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1)
+  ctx.drawImage(img, -iw / 2, -ih / 2)
+  return canvas
+}
+
 async function resample(
   src: string,
   width: number,
   height: number,
   fit: ImageFit,
+  orientation: Orientation,
 ): Promise<ImageSample> {
-  const img = await decode(src)
-  const iw = img.naturalWidth
-  const ih = img.naturalHeight
+  const decoded = await decode(src)
+  const oriented = orient(decoded, orientation)
+  const iw = 'naturalWidth' in oriented ? oriented.naturalWidth : oriented.width
+  const ih = 'naturalHeight' in oriented ? oriented.naturalHeight : oriented.height
   if (iw === 0 || ih === 0) throw new Error('That image has no pixels.')
 
   const r = rects(iw, ih, width, height, fit)
@@ -160,7 +190,7 @@ async function resample(
   // A single big drawImage down to 144 px aliases badly whatever the smoothing
   // hint says. Halving repeatedly is an exact 2x2 box average under bilinear, so
   // pre-shrink until the last step is under 2x and let the browser finish.
-  let source: HTMLImageElement | HTMLCanvasElement = img
+  let source: HTMLImageElement | HTMLCanvasElement = oriented
   let sx = r.sx
   let sy = r.sy
   let sw = r.sw

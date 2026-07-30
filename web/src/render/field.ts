@@ -150,7 +150,11 @@ function createKeyframeSampler(layer: KeyframeLayer, project: Project): Sampler 
 }
 
 function createImageSampler(layer: ImageLayer, width: number, height: number): Sampler {
-  const sample = getImage(layer.src, width, height, layer.fit)
+  const sample = getImage(layer.src, width, height, layer.fit, {
+    rotation: layer.rotation,
+    flipX: layer.flipX,
+    flipY: layer.flipY,
+  })
   if (!sample) {
     // Still decoding, or failed. Contribute nothing; useField re-runs on notify.
     return (_u, _v, out) => {
