@@ -265,6 +265,34 @@ export function evaluateField(project: Project): Field {
 }
 
 /** Quantises the field for the screen. No gamma: the screen wants sRGB. */
+/**
+ * A coarse sample of the same evaluator, for library thumbnails.
+ *
+ * Sampling the grid directly rather than evaluating the real field and scaling
+ * it down: a preview needs a few thousand cells, not ledCount x frameCount, and
+ * the library panel renders every project at once.
+ */
+export function evaluatePreview(project: Project, width: number, height: number): Field {
+  const ev = createEvaluator(project)
+  const w = Math.max(1, Math.min(width, ev.width))
+  const h = Math.max(1, Math.min(height, ev.height))
+  const data = new Float32Array(w * h * 3)
+  const cell: RGB = [0, 0, 0]
+  const uDiv = w > 1 ? w - 1 : 1
+  const vDiv = h > 1 ? h - 1 : 1
+
+  for (let y = 0; y < h; y++) {
+    const row = y * w * 3
+    for (let x = 0; x < w; x++) {
+      ev.cell(x / uDiv, y / vDiv, cell)
+      data[row + x * 3] = cell[0]
+      data[row + x * 3 + 1] = cell[1]
+      data[row + x * 3 + 2] = cell[2]
+    }
+  }
+  return { width: w, height: h, data }
+}
+
 export function fieldToImageData(field: Field): ImageData {
   const { width, height, data } = field
   const px = new Uint8ClampedArray(width * height * 4)

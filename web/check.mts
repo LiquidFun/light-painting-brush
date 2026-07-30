@@ -9,7 +9,7 @@
 
 import { createProject, flatCurve, isFlatCurve, sampleCurve, axisExtent, createLayer } from './src/model/project'
 import { sanitiseProject, SCHEMA_VERSION } from './src/model/storage'
-import { evaluateField } from './src/render/field'
+import { evaluateField, evaluatePreview } from './src/render/field'
 import { BRIGHTNESS_POINTS } from './src/model/types'
 import type { Project } from './src/model/types'
 
@@ -162,6 +162,28 @@ ok('wave of a different length differs',
 const wide = evaluateField(stripeProject(144, 'led'))
 ok('period = full strip does not repeat',
    px(wide, 0, 0) < 0.5 && px(wide, 100, 0) > 0.5)
+
+
+// --- library previews -----------------------------------------------------
+{
+  const p = solidProject()
+  const thumb = evaluatePreview(p, 44, 30)
+  ok('preview is the requested size', thumb.width === 44 && thumb.height === 30,
+     `${thumb.width}x${thumb.height}`)
+  ok('preview matches the full field for a flat layer',
+     near(thumb.data[0], 1) && near(thumb.data[thumb.data.length - 1], 1))
+
+  // A preview must never be bigger than the field it summarises.
+  const tiny = evaluatePreview({ ...p, ledCount: 8, durationMs: 400 }, 44, 30)
+  ok('preview clamps to the field size', tiny.width === 8 && tiny.height <= 30,
+     `${tiny.width}x${tiny.height}`)
+
+  // The Y ramp should still read top-to-bottom at preview resolution.
+  const rampPreview = evaluatePreview({ ...p, brightnessY: ramp.slice() }, 44, 30)
+  const top = rampPreview.data[0]
+  const bottom = rampPreview.data[(29 * 44) * 3]
+  ok('preview keeps the time axis', top < 0.05 && bottom > 0.95, `${top} -> ${bottom}`)
+}
 
 console.log(out.join('\n'))
 const passed = out.filter((r) => r.startsWith('PASS')).length

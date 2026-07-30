@@ -15,6 +15,7 @@ import type { LibrarySync } from '../model/library'
 import { COLOR_SPACES, FPS_OPTIONS } from '../model/types'
 import type { Project } from '../model/types'
 import { Button, Field, Panel, Row, Slider, Stat, Toggle } from './primitives'
+import { ProjectThumb } from './ProjectThumb'
 
 const SYNC_NOTE: Record<LibrarySync, string> = {
   loading: 'Checking the shared library on the server…',
@@ -206,15 +207,18 @@ export function ProjectPanel({
                 type="button"
                 onClick={() => onOpen(p.id)}
                 className={[
-                  'min-h-11 flex-1 truncate rounded border px-3 text-left text-sm',
+                  'flex min-h-11 flex-1 items-center gap-2 rounded border px-2 py-1 text-left text-sm',
                   p.id === project.id
                     ? 'border-fg bg-raised text-fg font-medium'
                     : 'border-line bg-panel text-dim active:bg-raised',
                 ].join(' ')}
               >
-                {p.name}
-                <span className="num ml-2 text-xs text-mute">
-                  {formatSeconds(p.durationMs)} · {p.layers.length} layers
+                <ProjectThumb project={p} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{p.name}</span>
+                  <span className="num block truncate text-xs text-mute">
+                    {formatSeconds(p.durationMs)} · {p.layers.length} layers
+                  </span>
                 </span>
               </button>
               <Button
