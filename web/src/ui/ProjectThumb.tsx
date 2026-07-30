@@ -14,24 +14,36 @@ const H = 30
 
 export function ProjectThumb({ project }: { project: Project }) {
   const ref = useRef<HTMLCanvasElement>(null)
+  const drawnFor = useRef<number | null>(null)
 
   useEffect(() => {
-    // Drawn on the next frame rather than synchronously, so opening the sheet
-    // with a large library does not block the animation.
-    //
-    // Deliberately not requestIdleCallback: pulling it off `window` into a local
-    // and calling it unbound throws "Illegal invocation", so the callback never
-    // ran and every canvas stayed untouched — which reads as black.
-    const raf = requestAnimationFrame(() => {
-      const canvas = ref.current
-      if (!canvas) return
+    const canvas = ref.current
+    if (!canvas) return
+
+    const draw = () => {
+      if (drawnFor.current === project.updatedAt) return
       const field = evaluatePreview(project, W, H)
       canvas.width = field.width
       canvas.height = field.height
-      canvas.getContext('2d')?.putImageData(fieldToImageData(field), 0, 0)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.putImageData(fieldToImageData(field), 0, 0)
+      drawnFor.current = project.updatedAt
+    }
+
+    // Drawn when the canvas is actually on screen, not when it mounts.
+    //
+    // The sheet is always mounted and merely translated off-screen when closed,
+    // so mounting says nothing about visibility: every preview was being
+    // computed on page load and painted into a canvas nobody had shown yet,
+    // which is where they were being lost. Waiting for the element to appear
+    // also means a closed sheet costs nothing.
+    drawnFor.current = null
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) draw()
     })
-    return () => cancelAnimationFrame(raf)
-    // updatedAt covers every edit and is cheaper to compare than the project.
+    observer.observe(canvas)
+    return () => observer.disconnect()
   }, [project, project.updatedAt])
 
   return (

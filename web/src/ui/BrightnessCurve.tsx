@@ -205,8 +205,12 @@ export function BrightnessCurve({
       <canvas ref={canvasRef} className="absolute inset-0 size-full" />
       <button
         type="button"
+        // The strip captures the pointer to paint, and a captured pointer
+        // retargets the click to the capture element — so without this the
+        // button was painting a dab and never firing its own onClick.
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={() => onChange(flatCurve())}
-        className="absolute right-1 top-1 rounded border border-line bg-panel px-1 text-[10px] text-mute active:bg-raised"
+        className="absolute right-1 top-1 rounded border border-line-strong bg-panel px-1.5 py-0.5 text-[10px] text-dim active:bg-raised"
       >
         Reset
       </button>
