@@ -206,10 +206,12 @@ export type Project = {
  *
  * The ceiling comes from the strip, not from us. WS2812B clocks at 1.25 us per
  * bit and 24 bits per LED, so 144 LEDs take 4.32 ms to shift out plus a ~0.3 ms
- * reset — a hard limit near 215 fps. 120 leaves an 8.3 ms budget against 4.4 ms
- * of transmission, so there is room for the flash read, the loop and the radio.
- * Higher would start dropping frames, which stretches the photograph's time
- * axis — the one failure this whole design exists to avoid.
+ * reset — a hard limit near 215 fps, which is not the same as a usable one.
+ *
+ * 120 leaves an 8.3 ms budget against 4.6 ms of transmission: 55% duty, with
+ * room for the flash read, the loop and the radio. Running late stretches the
+ * photograph's time axis, so the firmware counts frames that miss their slot and
+ * says so at the end of playback rather than failing quietly.
  */
 export const MIN_FPS = 5
 export const MAX_FPS = 120

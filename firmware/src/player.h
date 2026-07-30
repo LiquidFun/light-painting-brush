@@ -33,6 +33,13 @@ class Player {
   void setBrightness(uint8_t b) { brightness_ = b; }
   uint8_t brightness() const { return brightness_; }
 
+  // Frames that missed their slot by a whole interval or more, and the worst
+  // overshoot. Above ~150 fps the WS2812 shift-out alone eats most of the
+  // budget, and falling behind stretches the photograph's time axis — which is
+  // invisible in the picture unless something counts it.
+  uint32_t lateFrames() const { return lateFrames_; }
+  uint32_t worstLateUs() const { return worstLateUs_; }
+
   // Flash the whole strip white for ~200 ms (§2.3 IDENTIFY). Non-blocking.
   void identify();
   bool identifying() const { return identifyUntilMs_ != 0; }
@@ -63,4 +70,6 @@ class Player {
   uint32_t nextFrameUs_ = 0;
   uint32_t delayStartMs_ = 0;
   uint32_t identifyUntilMs_ = 0;
+  uint32_t lateFrames_ = 0;
+  uint32_t worstLateUs_ = 0;
 };

@@ -361,6 +361,13 @@ void loop() {
   }
 
   if (player.tick()) {
+    if (player.lateFrames() > 0) {
+      // Silent otherwise: the animation simply takes longer than it was designed
+      // to, and the photograph comes out stretched along the sweep.
+      Serial.printf("[play] %u frames missed their slot, worst %u us late — "
+                    "the frame rate is higher than this strip can clock out\n",
+                    (unsigned)player.lateFrames(), (unsigned)player.worstLateUs());
+    }
     // Playback ended on its own. The strip is already blank; keep it that way
     // until the next command or button press, so the indicator cannot reach the
     // sensor while the exposure is still running.

@@ -21,6 +21,8 @@ void Player::play(const Animation* anim) {
   dir_ = 1;
   frameIntervalUs_ = 1000000u / anim->header().fps;
   identifyUntilMs_ = 0;
+  lateFrames_ = 0;
+  worstLateUs_ = 0;
 
   if (anim->header().startDelayMs > 0) {
     phase_ = Phase::Delay;
@@ -62,9 +64,16 @@ bool Player::tick() {
       }
       return false;
 
-    case Phase::Running:
+    case Phase::Running: {
       // Signed comparison so the micros() rollover at ~71 minutes is harmless.
-      if ((int32_t)(micros() - nextFrameUs_) >= 0) {
+      const int32_t lateUs = (int32_t)(micros() - nextFrameUs_);
+      if (lateUs >= 0) {
+        // A whole interval past the slot means the previous frame overran and
+        // this one cannot be on time either, however fast it renders.
+        if (lateUs >= (int32_t)frameIntervalUs_) {
+          lateFrames_++;
+          if ((uint32_t)lateUs > worstLateUs_) worstLateUs_ = (uint32_t)lateUs;
+        }
         nextFrameUs_ += frameIntervalUs_;
         if (!advance()) {
           // Neither loop nor pingPong: blank and hand back to READY (§3.1).
@@ -76,6 +85,7 @@ bool Player::tick() {
         renderFrame((uint16_t)index_);
       }
       return false;
+    }
   }
   return false;
 }
