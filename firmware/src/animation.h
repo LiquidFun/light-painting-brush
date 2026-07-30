@@ -60,7 +60,11 @@ class Animation {
 
   // The CRC is accumulated as the bytes go past, so this is a comparison rather
   // than a second pass over the payload.
-  bool verifyCrc() const { return running_ == header_.crc32; }
+  //
+  // `running_` is the bare accumulator: CRC-32/ISO-HDLC finishes with a one's
+  // complement, and leaving it out here compared two different numbers and
+  // failed every single upload.
+  bool verifyCrc() const { return ~running_ == header_.crc32; }
 
   // Flushes the last partial sector and writes the record that makes the
   // animation findable after a reboot. Only meaningful once `complete()`.
@@ -88,7 +92,8 @@ class Animation {
   AnimationHeader header_;
   uint32_t expected_ = 0;
   uint32_t received_ = 0;
-  uint32_t running_ = 0;   // CRC in progress
+  // CRC in progress, pre-final-XOR. Invariant: ~running_ is the finished value.
+  uint32_t running_ = 0;
   uint32_t erasedTo_ = 0;  // partition offset cleared so far
   uint32_t staged_ = 0;    // bytes waiting in stage_
   bool loaded_ = false;

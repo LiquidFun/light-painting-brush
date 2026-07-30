@@ -134,7 +134,9 @@ bool Animation::restore() {
   header_ = h;
   expected_ = bytes;
   received_ = bytes;
-  running_ = h.crc32;
+  // Keep the accumulator's invariant, so verifyCrc() still holds for a restored
+  // animation rather than only for a freshly uploaded one.
+  running_ = ~h.crc32;
   loaded_ = true;
   Serial.printf("[flash] restored %u frames (%u bytes), verified in %u ms\n", h.frameCount,
                 (unsigned)bytes, (unsigned)(millis() - started));
