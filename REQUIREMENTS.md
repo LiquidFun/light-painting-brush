@@ -26,16 +26,23 @@ are binding for all of them; sections 4–6 are per-part.
 | Power | USB power bank, 5 V, ~3 A, feeding both strip and ESP32 `5V` pin from a common rail |
 | Host OS | Linux (Ubuntu-family) for development |
 
-There is **no flash persistence** on the device. The animation lives in RAM and is
-lost on power cycle. The library lives on the server instead, so this costs a
-re-upload rather than the work.
+The animation is **stored in flash** and survives a power cycle, so a shoot does
+not need a re-upload after every battery swap. `partitions_lightstick.csv`
+reclaims the unused second OTA slot and the unused SPIFFS partition, giving the
+animation 2.44 MB.
 
-**RAM is the ceiling on animation length**, and WiFi does not change that. At 432
-bytes per frame the WROOM's usable heap holds roughly 460 frames: 18 s at 25 fps,
-30 s at 15 fps. A module with PSRAM (ESP32-WROVER) raises this to minutes and is the
-correct fix when animations need to be longer than that. Streaming (§3.6) is the
-alternative and is deliberately deferred — it makes network jitter visible in the
-photograph.
+**Flash is the ceiling on animation length**: 5,764 frames at 432 bytes each,
+3.8 minutes at 25 fps (6.4 at 15 fps, 1.9 at 50). Frames are read one at a time during playback.
+That is safe where streaming over the network (§3.6) was not, because flash
+latency is microseconds and bounded while network latency is neither — a frame
+read is well under a millisecond against a 40 ms budget.
+
+RAM is no longer involved, and PSRAM is therefore not the fix for longer
+animations that §0 previously called for.
+
+Only **one** animation is stored. Several selectable slots, cycled from the BOOT
+button, would let a shoot run with no phone and no server at all; that is a
+deliberate follow-up, not part of this.
 
 ---
 
@@ -243,8 +250,15 @@ change and can retry.
 - On boot: init FastLED, blank the strip, join WiFi, connect to the relay.
 - Accept exactly **one** animation at a time. A new `begin` replaces the previous one
   — free the old buffer before allocating the new one.
-- Allocate with a single `malloc`/`heap_caps_malloc` of the full payload. If it
-  fails, report error `1` and stay `IDLE`; do not attempt partial allocation.
+- Write the payload straight into the `animation` flash partition as it arrives,
+  erasing one block ahead of the write cursor so clearing 2.4 MB is spread across
+  the transfer rather than blocking for seconds up front. The CRC is accumulated
+  as the bytes go past, not by a second pass.
+- A `begin` invalidates the stored record before the first byte lands, so a
+  transfer that dies half way cannot leave a valid record pointing at a payload
+  that is half one animation and half another.
+- On boot, verify the stored animation's CRC before trusting it and come up
+  `READY` if it passes.
 - **Trigger sources**, all equivalent: `play` from the relay, a press of the BOOT
   button on `GPIO 0`, or upload completion when `autoPlay` is set.
 - Playback: honour `startDelayMs`, then step frames on a `micros()` schedule derived
@@ -304,8 +318,8 @@ is higher with WiFi than it was with BLE.
 ### 4.6 Config constants
 
 Top of `protocol.h`, all `constexpr`: `LED_COUNT = 144`, `DATA_PIN = 13`,
-`BUTTON_PIN = 0`, `MAX_MILLIAMPS`, `DEFAULT_BRIGHTNESS = 80`,
-`HEAP_SAFETY_MARGIN = 24576`.
+`BUTTON_PIN = 0`, `MAX_MILLIAMPS`, `DEFAULT_BRIGHTNESS = 80`, and the flash
+layout constants that mirror `partitions_lightstick.csv`.
 
 ### 4.7 Serial logging
 
@@ -634,10 +648,13 @@ to tell "my wiring is wrong" from "my network code is wrong".
 
 ## 8. Known constraints and gotchas
 
-**RAM is the ceiling on animation length.** Roughly 460 frames on a WROOM — 18 s at
-25 fps. The firmware reports its real figure in `maxAnimationBytes`; the web app must
-trust that number over any local estimate. PSRAM is the fix for minutes-long
-animations.
+**Flash is the ceiling on animation length.** 5,764 frames — 3.8 minutes at 25 fps. The firmware reports its real figure in
+`maxAnimationBytes`; the web app must trust that number over any local estimate.
+Unlike the old RAM figure this one is a constant, so it does not move as the heap
+fragments.
+
+**Repartitioning wipes stored animations** and needs a full `erase_flash`. Flash
+wear is not a concern: one rewrite per upload against 100k cycles is decades.
 
 **Compression is available if the wire ever becomes the constraint again.** Measured
 on real payloads: deflate gives 8.3× on a 5 s animation and 16.8× on a 20 s one;
@@ -674,6 +691,9 @@ Recorded here so they are decisions rather than omissions:
 - **Per-user accounts.** One shared password, one shared library.
 - **Session locks.** Users are assumed cooperative.
 - **Per-device tokens.** One password compiled into every stick.
-- **Streaming playback.** Deferred in favour of PSRAM (§0).
+- **Streaming playback over the network.** Flash storage (§0) removed the reason
+  to want it.
+- **Multiple stored animations.** One slot for now; several, cycled from BOOT,
+  would allow shooting with no phone and no server.
 - **Runtime WiFi provisioning.** Credentials are compile-time.
 - **Compression.** Unnecessary at WiFi speeds.

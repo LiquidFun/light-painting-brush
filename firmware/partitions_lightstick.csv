@@ -1,0 +1,24 @@
+# Partition table for the light painting stick — 4 MB flash.
+#
+# The stock Arduino table spends 1.25 MB on a second OTA app slot we never use,
+# and another 1.375 MB on a SPIFFS partition we never mount. Reclaiming both
+# leaves 2.38 MB of payload, which at 432 bytes per frame is 5,764 frames:
+# 3.8 minutes at 25 fps, against 18 seconds when it lived in RAM.
+#
+# `factory` rather than `ota_0`: there is no OTA, so there is no otadata either.
+# The app is 1.5 MB against a ~950 KB binary — 60% headroom for the day the
+# firmware grows.
+#
+# The animation partition is raw, not a filesystem. We store exactly one blob at
+# a known offset; filenames, directories and fragmentation handling would all be
+# cost with no benefit, and a filesystem's erase granularity is the main thing
+# that makes writing 2.4 MB slow.
+#
+# CHANGING THIS TABLE INVALIDATES STORED ANIMATIONS and needs a full
+# `esptool.py erase_flash` followed by a fresh upload.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x5000,
+phy_init,   data, phy,      0xE000,   0x1000,
+factory,    app,  factory,  0x10000,  0x180000,
+animation,  data, 0x40,     0x190000, 0x270000,

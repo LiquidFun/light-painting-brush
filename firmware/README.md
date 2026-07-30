@@ -72,7 +72,8 @@ anyway on most hardware — see gotchas.
 | `src/transport.h` | One interface in front of both links, so `main.cpp` knows about neither. |
 | `src/net.{h,cpp}` | WiFiMulti + WebSocket client. Translates relay JSON into opcode frames. |
 | `src/ble_service.{h,cpp}` | Legacy NimBLE GATT server. Transport only. |
-| `src/animation.{h,cpp}` | Payload buffer, header parsing, CRC32. Knows nothing about links or LEDs. |
+| `src/animation.{h,cpp}` | Flash partition, header parsing, streaming CRC32, boot restore. |
+| `partitions_lightstick.csv` | 1.5 MB app (60% used), 2.44 MB animation. No OTA, no SPIFFS. |
 | `src/player.{h,cpp}` | FastLED output, non-blocking frame schedule, status LED, identify flash. |
 | `src/main.cpp` | State machine: `IDLE → RECEIVING → READY → PLAYING → READY`. |
 | `src/secrets.example.h` | Template for the gitignored `src/secrets.h`. |
@@ -95,7 +96,6 @@ All in `src/protocol.h`:
 | `BUTTON_PIN` | 0 | On-board BOOT button. |
 | `MAX_MILLIAMPS` | 250 | LED budget only. 250 = PC USB 2.0 port, 600 = USB 3.0, 2200 = 5 V 3 A power bank (the shooting value). |
 | `DEFAULT_BRIGHTNESS` | 80 | Master brightness at boot. |
-| `HEAP_SAFETY_MARGIN` | 24576 | Subtracted from the largest free block to get `maxAnimationBytes`. |
 | `STATUS_LED_ENABLED` | 1 | Set to 0 to guarantee nothing but the animation is ever lit. |
 | `POWER_BANK_KEEPALIVE` | 0 | Set to 1 if the power bank keeps cutting out. |
 | `LS_PROTO_VERSION` | 2 | Reported in `hello`; a mismatched `begin` is error `0x02`. |
@@ -142,12 +142,13 @@ pin. If you are holding the BOOT button while plugging in the power bank, the
 chip will sit in the bootloader and the strip will stay dark. This is expected,
 not a fault: release the button and press `EN`/reset.
 
-**RAM is the ceiling on animation length, and WiFi does not change that.** Expect
-roughly 120–200 KB usable. At 432 bytes per frame that is about 11–18 s at 25 fps.
-The real figure is reported in every `status` as `maxAnimationBytes`; the web app
-trusts it over any local estimate. A module with PSRAM (ESP32-WROVER) is the fix
-for minutes-long animations; streaming was rejected because a late frame stretches
-the time axis of the photograph.
+**Flash is the ceiling on animation length.** 2.38 MB of payload after the record block,
+so 5,764 frames — 3.8 minutes at 25 fps. The real figure is in every `status` as
+`maxAnimationBytes`, and the web app trusts it over any local estimate.
+
+Frames are read from flash one at a time during playback. That is safe where
+streaming over the network was not: a read is well under a millisecond against a
+40 ms frame budget, and flash latency is bounded where network latency is not.
 
 **WiFi radio activity can disturb WS2812 timing.** `Transport::poll()` is told when
 the shutter could be open and does nothing that could block during an exposure — no
@@ -158,8 +159,14 @@ no network to play. Test before trusting a shot anyway.
 playing it through a dropped socket, and the BOOT button still triggers. Only a
 partial transfer is abandoned.
 
-**There is no flash persistence.** The animation dies with the power. This is
-intentional — re-upload before each shot.
+**The animation is stored in flash and survives a power cycle.** The stick comes
+up `READY` with the last upload still loaded, so a battery swap does not cost a
+re-upload. Its CRC is verified at boot before it is trusted; a failure logs and
+leaves the stick `IDLE`.
+
+**Repartitioning wipes it.** Changing `partitions_lightstick.csv` needs
+`pio run -t erase` and a fresh upload. Flash wear is not worth worrying about:
+one rewrite per upload against 100k cycles is decades.
 
 **Power bank auto-shutoff.** Many banks cut output below ~50–100 mA. The ESP32's
 own draw usually prevents it; if it happens, build with

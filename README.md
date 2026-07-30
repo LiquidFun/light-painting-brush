@@ -61,8 +61,9 @@ downside is that no internet means no shooting.
 Data is 3.3 V into a 5 V strip. Out of spec, works anyway on most hardware; if LED 0
 misbehaves or the strip shows confetti, that is the cause and not the code.
 
-There is **no flash persistence**. The animation lives in RAM and dies with the
-power — re-upload before each shot.
+The animation is **stored in flash** — 2.38 MB, 3.8 minutes at 25 fps —
+and survives a power cycle, so the stick comes up ready with the last upload
+still loaded.
 
 ---
 

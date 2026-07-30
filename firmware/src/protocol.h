@@ -35,7 +35,6 @@ constexpr uint8_t BUTTON_PIN = 0;  // on-board BOOT button, active low
 //   USB power bank   (5 V 3 A)      -> 2200  <- the value REQUIREMENTS §4.5 mandates
 constexpr uint16_t MAX_MILLIAMPS = 250;
 constexpr uint8_t DEFAULT_BRIGHTNESS = 80;
-constexpr uint32_t HEAP_SAFETY_MARGIN = 24576;
 
 // Light LED 0 dim as a state indicator while idle/ready/error.
 // Suppressed during startDelayMs and playback so it cannot reach the sensor.
@@ -173,6 +172,31 @@ constexpr uint32_t LS_PROGRESS_INTERVAL_BYTES = 65536;
 constexpr uint32_t LS_TRANSFER_TIMEOUT_MS = 5000;
 constexpr uint32_t LS_PROGRESS_INTERVAL_BYTES = 4096;
 #endif
+
+// ---------------------------------------------------------------------------
+// Flash storage (partitions_lightstick.csv)
+// ---------------------------------------------------------------------------
+
+// The partition is found by name, so its subtype can stay a private one.
+#define LS_ANIMATION_PARTITION "animation"
+
+constexpr uint32_t LS_FLASH_SECTOR = 4096;
+// Erase granularity. Erasing a 64 KB block is far cheaper per byte than sixteen
+// sector erases, and this is done while a transfer is in flight.
+constexpr uint32_t LS_FLASH_BLOCK = 65536;
+
+// One sector reserved at the front for the record that makes a stored animation
+// findable after a reboot. The payload starts after it.
+constexpr uint32_t LS_RECORD_OFFSET = 0;
+// A whole block, not just a sector: starting the payload on a 64 KB boundary
+// means every erase during a transfer is a block erase rather than sixteen
+// sector erases. Costs 60 KB of 2.44 MB, and roughly halves the write time.
+constexpr uint32_t LS_PAYLOAD_OFFSET = LS_FLASH_BLOCK;
+
+// "LPS2" — bumped from the upload header's magic because this is a different
+// structure with a different lifetime, and confusing the two would mean playing
+// noise.
+constexpr uint32_t LS_RECORD_MAGIC = 0x3253504C;
 
 constexpr uint32_t LS_BUTTON_DEBOUNCE_MS = 250;
 constexpr uint32_t LS_IDENTIFY_MS = 200;

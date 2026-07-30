@@ -152,8 +152,8 @@ void handleBeginUpload(const uint8_t* payload, size_t len) {
 }
 
 void finishUpload() {
-  if (animation.verifyCrc()) {
-    Serial.printf("[upload] CRC ok, %u bytes, heap %u\n",
+  if (animation.verifyCrc() && animation.finish()) {
+    Serial.printf("[upload] CRC ok, %u bytes stored, heap %u\n",
                   (unsigned)animation.expected(), (unsigned)ESP.getFreeHeap());
     bool autoPlay = animation.header().autoPlay();
     setState(STATE_READY);
@@ -318,9 +318,16 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   player.begin();
+
+  // Before the transport, so the first status already reports a real ceiling
+  // and a restored animation rather than IDLE with nothing loaded.
+  if (animation.mount() && animation.restore()) {
+    Serial.println("[boot] animation restored from flash, ready to play");
+  }
+
   transport.begin(&handler);
 
-  setState(STATE_IDLE);
+  setState(animation.loaded() ? STATE_READY : STATE_IDLE);
 }
 
 void loop() {

@@ -110,10 +110,11 @@ bool Player::advance() {
 }
 
 void Player::renderFrame(uint16_t frameIndex) {
-  const uint8_t* src = anim_->frame(frameIndex);
-  if (!src) return;
+  // Read then show, never the other way round: FastLED's RMT output tolerates a
+  // stall, but there is no reason to put a flash access anywhere near it.
+  if (!anim_->readFrame(frameIndex, frame_)) return;
   for (uint16_t i = 0; i < LED_COUNT; i++) {
-    leds[i] = CRGB(src[i * 3], src[i * 3 + 1], src[i * 3 + 2]);
+    leds[i] = CRGB(frame_[i * 3], frame_[i * 3 + 1], frame_[i * 3 + 2]);
   }
   FastLED.setBrightness(brightness_);
   FastLED.show();

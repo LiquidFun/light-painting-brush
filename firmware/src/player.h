@@ -49,6 +49,11 @@ class Player {
   void renderFrame(uint16_t index);
   bool advance();
 
+  // One frame staged out of flash. 432 bytes at 144 LEDs — small enough that a
+  // read-ahead buffer would be optimising before measuring: a read is well under
+  // a millisecond against a 40 ms frame budget at 25 fps.
+  uint8_t frame_[LED_COUNT * 3];
+
   const Animation* anim_ = nullptr;
   Phase phase_ = Phase::Off;
   uint8_t brightness_ = DEFAULT_BRIGHTNESS;

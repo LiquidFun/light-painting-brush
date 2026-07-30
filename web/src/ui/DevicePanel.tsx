@@ -280,10 +280,10 @@ export function DevicePanel({
         />
 
         <p className="text-xs text-mute">
-          Trigger from here, or press the BOOT button on the stick. Nothing is stored on
-          the stick: it holds one animation in RAM and loses it on power cycle, so upload
-          again before each shot. At {project.fps} fps this animation runs for{' '}
-          {formatSeconds(project.durationMs)}.
+          Trigger from here, or press the BOOT button on the stick — a press during
+          playback stops it. The stick keeps one animation in flash and still has it
+          after a power cycle, so a battery swap does not cost a re-upload. At{' '}
+          {project.fps} fps this animation runs for {formatSeconds(project.durationMs)}.
         </p>
       </Panel>
     </>
