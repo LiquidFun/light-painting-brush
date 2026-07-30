@@ -198,6 +198,7 @@ export function LayerPanel({
 
           {active.kind === 'pattern' && (
             <PatternEditor
+              project={project}
               pattern={active.pattern}
               onChange={(pattern, push) => onUpdate(active.id, { pattern }, push)}
             />

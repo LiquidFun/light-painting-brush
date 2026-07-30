@@ -17,7 +17,7 @@
 import { easingFn } from '../model/easing'
 import { clamp01, hexToRgb, mixSpace } from '../model/color'
 import type { RGB } from '../model/color'
-import { frameCount } from '../model/project'
+import { frameCount, isFlatCurve, sampleCurve } from '../model/project'
 import type { BlendMode, ImageLayer, KeyframeLayer, Keyframe, Project } from '../model/types'
 import { getImage } from './imageCache'
 import { createSampler } from './patterns'
@@ -189,12 +189,17 @@ export function createEvaluator(project: Project): Evaluator {
         l.kind === 'keyframes'
           ? createKeyframeSampler(l, project)
           : l.kind === 'pattern'
-            ? createSampler(l.pattern, project.colorSpace)
+            ? createSampler(l.pattern, project.colorSpace, { width: ledCount, height: frames })
             : createImageSampler(l, ledCount, frames)
       return { sample, opacity: l.opacity, blend: l.blend }
     })
 
   const rgba: RGBA = [0, 0, 0, 0]
+
+  // The two curves multiply into a 2D envelope over the finished composite.
+  // Skipped entirely when both are flat, which is the common case.
+  const { brightnessX, brightnessY } = project
+  const shaped = !isFlatCurve(brightnessX) || !isFlatCurve(brightnessY)
 
   return {
     width: ledCount,
@@ -214,6 +219,16 @@ export function createEvaluator(project: Project): Evaluator {
         out[0] = clamp01(blendChannel(layer.blend, out[0], rgba[0], a))
         out[1] = clamp01(blendChannel(layer.blend, out[1], rgba[1], a))
         out[2] = clamp01(blendChannel(layer.blend, out[2], rgba[2], a))
+      }
+
+      // After compositing and before gamma, which happens in payload.ts. Scaling
+      // the blended result is what makes this read as a dimmer, rather than as a
+      // change to any one layer's colour.
+      if (shaped) {
+        const k = sampleCurve(brightnessX, u) * sampleCurve(brightnessY, v)
+        out[0] *= k
+        out[1] *= k
+        out[2] *= k
       }
     },
   }

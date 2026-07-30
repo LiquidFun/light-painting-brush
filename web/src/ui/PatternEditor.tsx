@@ -2,9 +2,9 @@
 // pattern kind; switching kind swaps in that kind's defaults rather than trying
 // to carry parameters across, which would mean guessing at equivalences.
 
-import { defaultPattern } from '../model/project'
+import { axisExtent, defaultPattern } from '../model/project'
 import { PATTERN_KINDS } from '../model/types'
-import type { ColorRamp, Pattern, PatternAxis, PatternKind } from '../model/types'
+import type { ColorRamp, Pattern, PatternAxis, PatternKind, Project } from '../model/types'
 import { Field, Segmented, Slider } from './primitives'
 
 const AXES: { id: PatternAxis; label: string }[] = [
@@ -43,9 +43,12 @@ function RampField({
 
 export function PatternEditor({
   pattern,
+  project,
   onChange,
 }: {
   pattern: Pattern
+  /** Needed to bound and label pixel widths, which differ per axis. */
+  project: Project
   /** `push` false coalesces a whole slider drag into one undo step. */
   onChange: (pattern: Pattern, push?: boolean) => void
 }) {
@@ -88,12 +91,12 @@ export function PatternEditor({
           />
           <Slider
             label="Period"
-            value={Math.round(pattern.period * 100)}
-            min={1}
-            max={100}
-            display={pct(pattern.period)}
+            value={Math.min(pattern.periodPx, axisExtent(project, pattern.axis))}
+            min={2}
+            max={axisExtent(project, pattern.axis)}
+            display={`${pattern.periodPx} ${pattern.axis === 'led' ? 'LEDs' : 'frames'}`}
             onCommitStart={start}
-            onChange={(v) => onChange({ ...pattern, period: v / 100 }, false)}
+            onChange={(v) => onChange({ ...pattern, periodPx: v }, false)}
           />
           <Slider
             label="Duty"

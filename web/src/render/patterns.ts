@@ -62,9 +62,21 @@ function valueNoise(x: number, y: number, seed: number): number {
 
 // --- samplers --------------------------------------------------------------
 
-export function createSampler(pattern: Pattern, colorSpace: ColorSpace): Sampler {
+/**
+ * `dims` is the field size in pixels — LEDs across, frames down. Patterns work in
+ * normalised u/v, so anything the user specifies in pixels is converted here,
+ * once, rather than at every sample.
+ */
+export function createSampler(
+  pattern: Pattern,
+  colorSpace: ColorSpace,
+  dims: { width: number; height: number },
+): Sampler {
   const space = mixSpace(colorSpace)
   const rgb: RGB = [0, 0, 0]
+  // u and v run 0..1 across (n - 1) steps, so one pixel is 1/(n - 1).
+  const pixelU = 1 / Math.max(1, dims.width - 1)
+  const pixelV = 1 / Math.max(1, dims.height - 1)
 
   switch (pattern.kind) {
     case 'solid': {
@@ -79,7 +91,8 @@ export function createSampler(pattern: Pattern, colorSpace: ColorSpace): Sampler
 
     case 'stripes': {
       const { axis, duty, phase } = pattern
-      const period = Math.max(pattern.period, 1e-4)
+      // periodPx is in pixels of the chosen axis; convert once to normalised.
+      const period = Math.max(pattern.periodPx, 1) * (axis === 'led' ? pixelU : pixelV)
       // Softness is a share of the narrower band, so the edge can never eat more
       // than half of it and invert the duty cycle.
       const edge = Math.max(pattern.softness * Math.min(duty, 1 - duty), 1e-6)

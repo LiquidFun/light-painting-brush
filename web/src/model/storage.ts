@@ -6,15 +6,18 @@
 
 import { clamp, isHex, normaliseHex } from './color'
 import {
+  axisExtent,
   clampKeyframe,
   createLayer,
   createProject,
   defaultPattern,
+  flatCurve,
   MAX_DURATION_MS,
   MIN_DURATION_MS,
+  sampleCurve,
   uid,
 } from './project'
-import { BLEND_MODES, EASING_NAMES, FPS_OPTIONS, PATTERN_KINDS } from './types'
+import { BLEND_MODES, BRIGHTNESS_POINTS, EASING_NAMES, FPS_OPTIONS, PATTERN_KINDS } from './types'
 import type {
   BlendMode,
   ColorRamp,
@@ -32,8 +35,12 @@ import type {
 /**
  * 2 introduced layers. A schema 1 file has a flat `keyframes` array, which
  * upgrades to a single keyframe layer — see `sanitiseLayers`.
+ *
+ * 3 moved the stripes period from a fraction of the axis to a pixel width, and
+ * added the brightness curves. Both upgrade silently: see `sanitisePattern` and
+ * `curve`.
  */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 const KEY_PROJECTS = 'lightstick.v1.projects'
 const KEY_LAST_OPENED = 'lightstick.v1.lastOpened'
@@ -108,7 +115,7 @@ function axis(raw: unknown): PatternAxis {
   return raw === 'time' ? 'time' : 'led'
 }
 
-function sanitisePattern(raw: unknown): Pattern {
+function sanitisePattern(raw: unknown, project: Project): Pattern {
   const fallbackKind: PatternKind = 'stripes'
   if (!isObject(raw)) return defaultPattern(fallbackKind)
   const kind = PATTERN_KINDS.some((k) => k.id === raw.kind)
@@ -123,7 +130,21 @@ function sanitisePattern(raw: unknown): Pattern {
       return {
         kind: 'stripes',
         axis: axis(raw.axis),
-        period: clamp(num(raw.period, base.period), 0.01, 2),
+        // Schema 2 stored a fraction of the axis; 3 stores pixels of it. An old
+        // file is recognised by having `period` and no `periodPx`, and converts
+        // against the axis it was authored for so the stripes look unchanged.
+        periodPx: Math.round(
+          clamp(
+            num(
+              raw.periodPx,
+              num(raw.period, 0) > 0
+                ? num(raw.period, 0) * axisExtent(project, axis(raw.axis))
+                : base.periodPx,
+            ),
+            1,
+            4096,
+          ),
+        ),
         duty: clamp(num(raw.duty, base.duty), 0, 1),
         softness: clamp(num(raw.softness, base.softness), 0, 1),
         phase: clamp(num(raw.phase, base.phase), -1, 1),
@@ -156,6 +177,19 @@ function sanitisePattern(raw: unknown): Pattern {
   }
 }
 
+/**
+ * A brightness curve is resampled rather than rejected when the length differs,
+ * so BRIGHTNESS_POINTS can change later without invalidating saved projects.
+ */
+function curve(raw: unknown): number[] {
+  if (!Array.isArray(raw) || raw.length < 2) return flatCurve()
+  const source = raw.map((v) => clamp(num(v, 1), 0, 1))
+  if (source.length === BRIGHTNESS_POINTS) return source
+  return Array.from({ length: BRIGHTNESS_POINTS }, (_, i) =>
+    sampleCurve(source, i / (BRIGHTNESS_POINTS - 1)),
+  )
+}
+
 function sanitiseLayer(raw: unknown, project: Project): Layer | null {
   if (!isObject(raw)) return null
   const kind = raw.kind
@@ -171,7 +205,8 @@ function sanitiseLayer(raw: unknown, project: Project): Layer | null {
     hidden: bool(raw.hidden, false),
   }
 
-  if (kind === 'pattern') return { ...base, kind, pattern: sanitisePattern(raw.pattern) }
+  if (kind === 'pattern')
+    return { ...base, kind, pattern: sanitisePattern(raw.pattern, project) }
 
   if (kind === 'image') {
     // Only data URLs: a project must stay one self-contained file, and a remote
@@ -233,6 +268,8 @@ export function sanitiseProject(raw: unknown): Project {
         : 'oklab',
     falloffPower: clamp(num(raw.falloffPower, 2), 0.5, 6),
     layers: [],
+    brightnessX: curve(raw.brightnessX),
+    brightnessY: curve(raw.brightnessY),
     playback: {
       loop: bool(playback.loop, false),
       pingPong: bool(playback.pingPong, false),

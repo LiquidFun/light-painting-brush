@@ -84,7 +84,13 @@ export type Pattern =
       kind: 'stripes'
       axis: PatternAxis
       /** Stripe pair width, in normalised units of the axis. */
-      period: number
+      /**
+       * One full stripe cycle, in pixels of the chosen axis: LEDs when `axis` is
+       * 'led', frames when it is 'time'. Pixels rather than a fraction because a
+       * stripe you can count is the thing you are actually designing, and it
+       * should not silently resize when the duration changes.
+       */
+      periodPx: number
       /** 0..1 share of the period given to `ramp.from`. */
       duty: number
       /** 0 = hard edge, 1 = fully soft. */
@@ -150,6 +156,13 @@ export type ImageLayer = LayerBase & {
 export type Layer = KeyframeLayer | PatternLayer | ImageLayer
 export type LayerKind = Layer['kind']
 
+/**
+ * Brightness multiplier curves, sampled evenly across an axis and interpolated
+ * between. A fixed-length array rather than control points because the editor
+ * paints them with a finger: there is nothing to grab and nothing to miss.
+ */
+export const BRIGHTNESS_POINTS = 33
+
 export type Project = {
   id: string
   name: string
@@ -163,6 +176,13 @@ export type Project = {
   falloffPower: number
   /** Bottom to top. */
   layers: Layer[]
+  /**
+   * Brightness multipliers across LED index and down time, each
+   * BRIGHTNESS_POINTS long and 0..1. They multiply with each other and with the
+   * finished composite, so together they are a 2D envelope over the photograph.
+   */
+  brightnessX: number[]
+  brightnessY: number[]
   playback: Playback
   /** Epoch ms, for sorting the library. */
   updatedAt: number

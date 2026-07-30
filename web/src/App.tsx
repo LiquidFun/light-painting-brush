@@ -7,6 +7,8 @@ import { useTransport } from './state/useTransport'
 import { useField } from './state/useField'
 import { usePlayback } from './state/usePlayback'
 import { buildPayload } from './render/payload'
+import { BrightnessCurve, CURVE_THICKNESS } from './ui/BrightnessCurve'
+import type { CanvasGeometry } from './ui/FieldCanvas'
 import { ContextMenu } from './ui/ContextMenu'
 import type { ContextTarget } from './ui/ContextMenu'
 import { DevicePanel } from './ui/DevicePanel'
@@ -35,6 +37,17 @@ export default function App() {
   const [menu, setMenu] = useState<ContextTarget | null>(null)
   const [autoPlay, setAutoPlay] = useState(false)
   const [lastColor, setLastColor] = useState('#ffffff')
+  const [showCurves, setShowCurves] = useState(false)
+  // The curves are separate elements beside the canvas, so they need the
+  // canvas's own gutter offset and pan/zoom to stay lined up with the axes.
+  const [geometry, setGeometry] = useState<CanvasGeometry>({
+    originX: 0,
+    originY: 0,
+    panX: 0,
+    panY: 0,
+    spanX: 0,
+    spanY: 0,
+  })
 
   useEffect(() => {
     savePrefs(prefs)
@@ -81,8 +94,21 @@ export default function App() {
           onOpenDevice={() => openSheet('device')}
         />
 
-        <div className="min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1">
+          {showCurves && (
+            <BrightnessCurve
+              axis="y"
+              values={project.brightnessY}
+              origin={geometry.originY}
+              pan={geometry.panY}
+              span={geometry.spanY}
+              onChange={(brightnessY, push) =>
+                editor.patchProject({ brightnessY }, push)
+              }
+            />
+          )}
           <FieldCanvas
+            onGeometry={setGeometry}
             project={project}
             keyframes={keyframes}
             field={field}
@@ -102,9 +128,40 @@ export default function App() {
           />
         </div>
 
-        <p className="num px-2 py-1 text-center text-[10px] text-mute">
-          LED index across · time downward — this is what the photograph will look like
-        </p>
+        {showCurves && (
+          <div className="flex">
+            <div className="shrink-0" style={{ width: CURVE_THICKNESS }} />
+            <div className="min-w-0 flex-1">
+              <BrightnessCurve
+                axis="x"
+                values={project.brightnessX}
+                origin={geometry.originX}
+                pan={geometry.panX}
+                span={geometry.spanX}
+                onChange={(brightnessX, push) =>
+                  editor.patchProject({ brightnessX }, push)
+                }
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 px-2 py-1">
+          <p className="num min-w-0 flex-1 truncate text-center text-[10px] text-mute">
+            LED index across · time downward — this is what the photograph will look like
+          </p>
+          <button
+            type="button"
+            aria-pressed={showCurves}
+            onClick={() => setShowCurves((v) => !v)}
+            className={[
+              'shrink-0 rounded border px-2 py-1 text-[10px]',
+              showCurves ? 'border-fg text-fg' : 'border-line text-mute',
+            ].join(' ')}
+          >
+            Brightness
+          </button>
+        </div>
 
         <StripBar field={field} timeMs={playhead.timeMs} fps={project.fps} />
         <Transport

@@ -9,7 +9,7 @@ import type {
   PatternKind,
   Project,
 } from './types'
-import { FPS_OPTIONS } from './types'
+import { BRIGHTNESS_POINTS, FPS_OPTIONS } from './types'
 
 export const DEFAULT_LED_COUNT = 144
 export const BYTES_PER_LED = 3
@@ -56,6 +56,8 @@ export function createProject(name = 'Untitled'): Project {
     colorSpace: 'oklab',
     falloffPower: 2,
     layers: [],
+    brightnessX: flatCurve(),
+    brightnessY: flatCurve(),
     playback: { loop: false, pingPong: false, startDelayMs: 0 },
     updatedAt: Date.now(),
   }
@@ -95,6 +97,32 @@ export function clampKeyframe(k: Keyframe, p: Project): Keyframe {
 
 const DEFAULT_RAMP = { from: '#ff2d00', to: '#00d0ff' }
 
+/** A brightness curve that does nothing: full brightness everywhere. */
+export function flatCurve(): number[] {
+  return new Array<number>(BRIGHTNESS_POINTS).fill(1)
+}
+
+export const isFlatCurve = (curve: number[]): boolean => curve.every((v) => v === 1)
+
+/**
+ * Reads a curve at `t` in 0..1, interpolating between samples. Out-of-range t
+ * clamps rather than wrapping, so the ends of the strip hold their value.
+ */
+export function sampleCurve(curve: number[], t: number): number {
+  const last = curve.length - 1
+  if (last < 0) return 1
+  const x = t <= 0 ? 0 : t >= 1 ? last : t * last
+  const i = Math.floor(x)
+  if (i >= last) return curve[last]
+  const f = x - i
+  return curve[i] * (1 - f) + curve[i + 1] * f
+}
+
+/** How many pixels a pattern axis spans: LEDs across, frames down. */
+export function axisExtent(p: Project, axis: 'led' | 'time'): number {
+  return axis === 'led' ? p.ledCount : frameCount(p)
+}
+
 export function defaultPattern(kind: PatternKind): Pattern {
   switch (kind) {
     case 'solid':
@@ -103,7 +131,7 @@ export function defaultPattern(kind: PatternKind): Pattern {
       return {
         kind: 'stripes',
         axis: 'led',
-        period: 0.2,
+        periodPx: 24,
         duty: 0.5,
         softness: 0.1,
         phase: 0,

@@ -48,6 +48,23 @@ export type CanvasProps = {
   onScrub: (timeMs: number) => void
   onOpenEditor: () => void
   onContextMenu: (id: string, clientX: number, clientY: number) => void
+  /**
+   * Where the image sits inside this element, in CSS pixels, after the gutters
+   * and the current pan/zoom. The brightness curves are separate elements and
+   * have to line up with the axes, so they need the same mapping.
+   */
+  onGeometry?: (geometry: CanvasGeometry) => void
+}
+
+export type CanvasGeometry = {
+  /** Offset of the image area from the element's edge — the ruler gutters. */
+  originX: number
+  originY: number
+  /** Pan within the area, <= 0, and the zoomed extent of the full field. */
+  panX: number
+  panY: number
+  spanX: number
+  spanY: number
 }
 
 export function FieldCanvas(props: CanvasProps) {
@@ -65,6 +82,7 @@ export function FieldCanvas(props: CanvasProps) {
     onScrub,
     onOpenEditor,
     onContextMenu,
+    onGeometry,
   } = props
 
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -116,6 +134,19 @@ export function FieldCanvas(props: CanvasProps) {
       yToV: (y: number) => (y - area.y - view.panY) / spanY,
     }
   }, [size, view])
+
+  // Reported from an effect rather than during render, so a parent that stores
+  // it cannot cause a render loop.
+  useEffect(() => {
+    onGeometry?.({
+      originX: geom.area.x,
+      originY: geom.area.y,
+      panX: view.panX,
+      panY: view.panY,
+      spanX: geom.spanX,
+      spanY: geom.spanY,
+    })
+  }, [geom, view, onGeometry])
 
   const clampView = useCallback((next: View, area: { w: number; h: number }): View => {
     const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next.scale))
