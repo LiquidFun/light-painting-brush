@@ -19,7 +19,7 @@ import {
   seedProject,
 } from './src/model/project'
 import { sanitiseProject, SCHEMA_VERSION } from './src/model/storage'
-import { evaluateField, evaluatePreview } from './src/render/field'
+import { createEvaluator, evaluateField, evaluatePreview } from './src/render/field'
 import { BRIGHTNESS_POINTS, MAX_FPS, MIN_FPS } from './src/model/types'
 import type { Project } from './src/model/types'
 
@@ -286,6 +286,31 @@ ok('period = full strip does not repeat',
      (sanitiseProject({ ...fresh, layers: [{ id: 'i', kind: 'image', name: 'I', opacity: 1,
        blend: 'normal', hidden: false, src: '', fit: 'cover', rotation: 45 }] }).layers[0] as any)
        .rotation === 0)
+}
+
+
+// --- previews must not resample images at full resolution -----------------
+{
+  // A 44x30 thumbnail asking for a 144xN resample is what thrashed the cache
+  // and made the library flicker. createEvaluator's sampleSize is what stops it.
+  const p = { ...createProject('img'), ledCount: 144, durationMs: 10000, fps: 60 }
+  const full = createEvaluator(p)
+  const small = createEvaluator(p, { width: 44, height: 30 })
+  ok('the evaluator still reports the real field size',
+     full.width === 144 && small.width === 144 && full.height === small.height,
+     `${small.width}x${small.height}`)
+
+  // A paint layer is authoritative pixel art and must read identically at any
+  // sampling grid, since it is not resampled at all.
+  const painted: Project = {
+    ...p,
+    layers: [{ id: 'pp', kind: 'paint', name: 'P', opacity: 1, blend: 'normal',
+               hidden: false, src: '' } as any],
+  }
+  const a = evaluatePreview(painted, 44, 30)
+  const b = evaluatePreview(painted, 44, 30)
+  ok('preview evaluation is stable across calls',
+     a.data.every((v, i) => near(v, b.data[i])))
 }
 
 console.log(out.join('\n'))

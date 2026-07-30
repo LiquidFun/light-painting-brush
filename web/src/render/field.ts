@@ -195,8 +195,10 @@ function blendChannel(mode: BlendMode, dst: number, src: number, a: number): num
  */
 function createPaintSampler(layer: PaintLayer, width: number, height: number): Sampler {
   const surface = getPaintSurface(layer.id, layer.src, width, height)
-  const xMax = width - 1
-  const yMax = height - 1
+  // Indexed against the surface, not the grid being sampled, so a coarse preview
+  // reads the same authoritative pixels instead of forcing a second copy.
+  const xMax = surface.width - 1
+  const yMax = surface.height - 1
   return (u, v, out) => {
     const x = Math.round(clamp01(u) * xMax)
     const y = Math.round(clamp01(v) * yMax)
@@ -213,9 +215,20 @@ function createPaintSampler(layer: PaintLayer, width: number, height: number): S
   }
 }
 
-export function createEvaluator(project: Project): Evaluator {
+/**
+ * `sampleSize` is the grid the result will actually be read on. It only affects
+ * image layers, which resample: a 44x30 thumbnail asking for a full-resolution
+ * resample allocated megabytes per image and thrashed the cache, which showed up
+ * as the whole library flickering.
+ */
+export function createEvaluator(
+  project: Project,
+  sampleSize?: { width: number; height: number },
+): Evaluator {
   const { ledCount } = project
   const frames = frameCount(project)
+  const imageWidth = sampleSize?.width ?? ledCount
+  const imageHeight = sampleSize?.height ?? frames
   const background = hexToRgb(project.background)
 
   const layers = project.layers
@@ -227,7 +240,7 @@ export function createEvaluator(project: Project): Evaluator {
           : l.kind === 'pattern'
             ? createSampler(l.pattern, project.colorSpace, { width: ledCount, height: frames })
             : l.kind === 'image'
-              ? createImageSampler(l, ledCount, frames)
+              ? createImageSampler(l, imageWidth, imageHeight)
               : createPaintSampler(l, ledCount, frames)
       return { sample, opacity: l.opacity, blend: l.blend }
     })
@@ -311,9 +324,9 @@ export function evaluateField(project: Project): Field {
  * the library panel renders every project at once.
  */
 export function evaluatePreview(project: Project, width: number, height: number): Field {
-  const ev = createEvaluator(project)
-  const w = Math.max(1, Math.min(width, ev.width))
-  const h = Math.max(1, Math.min(height, ev.height))
+  const w = Math.max(1, Math.min(width, project.ledCount))
+  const h = Math.max(1, Math.min(height, frameCount(project)))
+  const ev = createEvaluator(project, { width: w, height: h })
   const data = new Float32Array(w * h * 3)
   const cell: RGB = [0, 0, 0]
   const uDiv = w > 1 ? w - 1 : 1

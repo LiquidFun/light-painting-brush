@@ -24,14 +24,27 @@ export function ProjectThumb({ project }: { project: Project }) {
     let visible = false
 
     const draw = () => {
-      if (drawnFor.current === project.updatedAt) return
       const field = evaluatePreview(project, W, H)
-      canvas.width = field.width
-      canvas.height = field.height
+      // Assigning width clears the canvas, so only do it when it actually
+      // changed — otherwise every redraw is a visible blank-then-paint.
+      if (canvas.width !== field.width) canvas.width = field.width
+      if (canvas.height !== field.height) canvas.height = field.height
       const ctx = canvas.getContext('2d')
       if (!ctx) return
       ctx.putImageData(fieldToImageData(field), 0, 0)
       drawnFor.current = project.updatedAt
+    }
+
+    // One redraw per frame at most. A library of N projects decoding N images
+    // produces N notifications, and without this each one repaints every
+    // thumbnail.
+    let pending = 0
+    const schedule = () => {
+      if (pending) return
+      pending = requestAnimationFrame(() => {
+        pending = 0
+        if (visible) draw()
+      })
     }
 
     // Drawn when the canvas is on screen rather than when it mounts. The sheet
@@ -40,7 +53,7 @@ export function ProjectThumb({ project }: { project: Project }) {
     // an evaluation per project.
     const observer = new IntersectionObserver((entries) => {
       visible = entries.some((e) => e.isIntersecting)
-      if (visible) draw()
+      if (visible && drawnFor.current !== project.updatedAt) schedule()
     })
     observer.observe(canvas)
 
@@ -49,14 +62,11 @@ export function ProjectThumb({ project }: { project: Project }) {
     // renders black. useField watches these caches for the main canvas; without
     // the same here the thumbnail stayed black until an unrelated edit happened
     // to force a redraw.
-    const invalidate = () => {
-      drawnFor.current = null
-      if (visible) draw()
-    }
-    const unsubscribeImages = subscribeImages(invalidate)
-    const unsubscribePaint = subscribePaint(invalidate)
+    const unsubscribeImages = subscribeImages(schedule)
+    const unsubscribePaint = subscribePaint(schedule)
 
     return () => {
+      cancelAnimationFrame(pending)
       observer.disconnect()
       unsubscribeImages()
       unsubscribePaint()
