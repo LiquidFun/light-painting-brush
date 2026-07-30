@@ -129,6 +129,14 @@ to be. Any interaction means the shutter is shut, so that is what brings it back
 
 ## Gotchas
 
+**Anything lit on the board itself ends up in the photograph.** The firmware can
+suppress LED 0 during an exposure, and does, but it has no reach beyond the
+strip. The DevKit's red power LED is wired to the rail rather than to a pin, so
+no software can turn it off, and the CH340 usually has an activity LED of its
+own. Wrap the board in tape or heatshrink, leaving only the strip and the BOOT
+button exposed. The USB shell and the regulator can glint too, so cover the lot
+rather than picking off individual LEDs.
+
 **`GPIO 0` held low at power-on enters the serial bootloader.** It is a strapping
 pin. If you are holding the BOOT button while plugging in the power bank, the
 chip will sit in the bootloader and the strip will stay dark. This is expected,
