@@ -52,6 +52,24 @@ ok('led-axis period 0.25 -> 36 LEDs', p0.pattern.periodPx === 36, String(p0.patt
 const frames = axisExtent(migrated, 'time')
 ok('time-axis period 0.5 -> half the frames', p1.pattern.periodPx === Math.round(0.5 * frames),
    `${p1.pattern.periodPx} of ${frames}`)
+// wave wavelength gets the identical treatment
+const v2wave = {
+  schema: 2, id: 'mig2', name: 'old wave', ledCount: 144, durationMs: 4000, fps: 25,
+  layers: [
+    { id: 'w1', kind: 'pattern', name: 'W', opacity: 1, blend: 'normal', hidden: false,
+      pattern: { kind: 'wave', axis: 'led', wavelength: 0.5, amplitude: 1, phase: 0, speed: 1,
+                 ramp: { from: '#000000', to: '#ffffff' } } },
+  ],
+}
+const wave = (sanitiseProject(v2wave).layers[0] as any).pattern
+ok('wavelength 0.5 -> 72 LEDs', wave.wavelengthPx === 72, String(wave.wavelengthPx))
+const waveKept = sanitiseProject({
+  ...v2wave,
+  layers: [{ ...v2wave.layers[0], pattern: { ...v2wave.layers[0].pattern, wavelengthPx: 13 } }],
+})
+ok('wavelengthPx wins over wavelength',
+   (waveKept.layers[0] as any).pattern.wavelengthPx === 13)
+
 ok('migrated project gets flat curves',
    isFlatCurve(migrated.brightnessX) && isFlatCurve(migrated.brightnessY))
 
@@ -122,6 +140,24 @@ ok('stripe period 20 repeats one period on', Math.abs(row(5) - row(25)) < 1e-6,
 ok('stripe period 20 repeats two periods on', Math.abs(row(15) - row(55)) < 1e-6)
 ok('a 20-LED period gives 7 full cycles over 144 LEDs',
    Math.abs(row(5) - row(45)) < 1e-6 && Math.abs(row(5) - row(15)) > 0.5)
+
+// --- wave wavelength in pixels -------------------------------------------
+function waveProject(wavelengthPx: number): Project {
+  const p = createProject('wave')
+  const layer = createLayer('pattern') as any
+  layer.pattern = { kind: 'wave', axis: 'led', wavelengthPx, amplitude: 0, phase: 0, speed: 0,
+                    ramp: { from: '#000000', to: '#ffffff' } }
+  return { ...p, ledCount: 144, durationMs: 2000, layers: [layer] }
+}
+const w = evaluateField(waveProject(40))
+const wv = (x: number) => px(w, x, 0)
+// amplitude 0 and speed 0: a pure sine along the LEDs, period 40, peak at a
+// quarter of the way in and trough at three quarters.
+ok('wave peak at a quarter period', wv(10) > 0.99, String(wv(10)))
+ok('wave trough at three quarters', wv(30) < 0.01, String(wv(30)))
+ok('wave repeats one wavelength on', Math.abs(wv(10) - wv(50)) < 1e-6)
+ok('wave of a different length differs',
+   Math.abs(wv(10) - px(evaluateField(waveProject(80)), 10, 0)) > 0.05)
 
 const wide = evaluateField(stripeProject(144, 'led'))
 ok('period = full strip does not repeat',

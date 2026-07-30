@@ -139,12 +139,12 @@ export function PatternEditor({
           />
           <Slider
             label="Wavelength"
-            value={Math.round(pattern.wavelength * 100)}
-            min={1}
-            max={200}
-            display={pct(pattern.wavelength)}
+            value={Math.min(pattern.wavelengthPx, axisExtent(project, pattern.axis))}
+            min={2}
+            max={axisExtent(project, pattern.axis)}
+            display={`${pattern.wavelengthPx} ${pattern.axis === 'led' ? 'LEDs' : 'frames'}`}
             onCommitStart={start}
-            onChange={(v) => onChange({ ...pattern, wavelength: v / 100 }, false)}
+            onChange={(v) => onChange({ ...pattern, wavelengthPx: v }, false)}
           />
           <Slider
             label="Amplitude"

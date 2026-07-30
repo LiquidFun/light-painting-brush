@@ -101,7 +101,8 @@ export type Pattern =
   | {
       kind: 'wave'
       axis: PatternAxis
-      wavelength: number
+      /** One full wave cycle, in pixels of the chosen axis. Same units as stripes. */
+      wavelengthPx: number
       /** 0..1 peak brightness of the wave envelope. */
       amplitude: number
       phase: number

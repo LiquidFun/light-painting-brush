@@ -115,7 +115,9 @@ export function createSampler(
 
     case 'wave': {
       const { axis, amplitude, phase, speed } = pattern
-      const wavelength = Math.max(pattern.wavelength, 1e-4)
+      // Pixels of the chosen axis, like the stripe period; converted once here.
+      const wavelength =
+        Math.max(pattern.wavelengthPx, 1) * (axis === 'led' ? pixelU : pixelV)
       const ramp = rampSampler(pattern.ramp, space)
       return (u, v, out) => {
         const c = axis === 'led' ? u : v

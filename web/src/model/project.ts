@@ -141,7 +141,7 @@ export function defaultPattern(kind: PatternKind): Pattern {
       return {
         kind: 'wave',
         axis: 'led',
-        wavelength: 0.5,
+        wavelengthPx: 72,
         amplitude: 1,
         phase: 0,
         speed: 1,

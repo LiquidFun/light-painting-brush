@@ -36,8 +36,10 @@ import type {
  * 2 introduced layers. A schema 1 file has a flat `keyframes` array, which
  * upgrades to a single keyframe layer — see `sanitiseLayers`.
  *
- * 3 moved the stripes period from a fraction of the axis to a pixel width, and
- * added the brightness curves. Both upgrade silently: see `sanitisePattern` and
+ * 3 moved the stripe period and the wave wavelength from fractions of their axis
+ * to pixel widths, and added the brightness curves. All three upgrade silently
+ * and by detection rather than by version — a schema 3 file written before the
+ * wavelength change still carries the old field — see `sanitisePattern` and
  * `curve`.
  */
 export const SCHEMA_VERSION = 3
@@ -154,7 +156,19 @@ function sanitisePattern(raw: unknown, project: Project): Pattern {
       return {
         kind: 'wave',
         axis: axis(raw.axis),
-        wavelength: clamp(num(raw.wavelength, base.wavelength), 0.01, 2),
+        // Same fraction-to-pixels upgrade as the stripe period; see above.
+        wavelengthPx: Math.round(
+          clamp(
+            num(
+              raw.wavelengthPx,
+              num(raw.wavelength, 0) > 0
+                ? num(raw.wavelength, 0) * axisExtent(project, axis(raw.axis))
+                : base.wavelengthPx,
+            ),
+            1,
+            4096,
+          ),
+        ),
         amplitude: clamp(num(raw.amplitude, base.amplitude), 0, 1),
         phase: clamp(num(raw.phase, base.phase), -1, 1),
         speed: clamp(num(raw.speed, base.speed), -10, 10),
