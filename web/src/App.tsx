@@ -7,6 +7,8 @@ import { useTransport } from './state/useTransport'
 import { useField } from './state/useField'
 import { usePlayback } from './state/usePlayback'
 import { buildPayload } from './render/payload'
+import { serialisePaint } from './render/paintCache'
+import { BRUSH_SIZES } from './model/types'
 import { BrightnessCurve, CURVE_THICKNESS } from './ui/BrightnessCurve'
 import type { CanvasGeometry } from './ui/FieldCanvas'
 import { ContextMenu } from './ui/ContextMenu'
@@ -38,6 +40,7 @@ export default function App() {
   const [autoPlay, setAutoPlay] = useState(false)
   const [lastColor, setLastColor] = useState('#ffffff')
   const [showCurves, setShowCurves] = useState(false)
+  const [brushRadius, setBrushRadius] = useState<number>(BRUSH_SIZES[1])
   // The curves are separate elements beside the canvas, so they need the
   // canvas's own gutter offset and pan/zoom to stay lined up with the axes.
   const [geometry, setGeometry] = useState<CanvasGeometry>({
@@ -127,6 +130,12 @@ export default function App() {
             }}
             onOpenEditor={() => openSheet('keyframe')}
             onContextMenu={(id, x, y) => setMenu({ id, x, y })}
+            paintLayerId={editor.paintLayer?.id ?? null}
+            brushRadius={brushRadius}
+            onStrokeEnd={() => {
+              const id = editor.paintLayer?.id
+              if (id) editor.commitPaint(id, serialisePaint(id))
+            }}
           />
         </div>
 
@@ -172,7 +181,13 @@ export default function App() {
           fps={project.fps}
           frameCount={frameCount(project)}
         />
-        <ToolSelector tool={editor.tool} onChange={editor.setTool} />
+        <ToolSelector
+          tool={editor.tool}
+          brushRadius={brushRadius}
+          color={lastColor}
+          onChange={editor.setTool}
+          onBrushRadius={setBrushRadius}
+        />
       </div>
 
       <Sheet

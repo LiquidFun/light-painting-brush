@@ -8,9 +8,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { hexToRgb } from '../model/color'
 import { createKeyframe } from '../model/project'
 import type { Keyframe, Project, Tool } from '../model/types'
 import { fieldToImageData } from '../render/field'
+import { notifyPaint, paintDab } from '../render/paintCache'
 import type { Field } from '../render/field'
 
 const GUTTER_TOP = 22
@@ -29,6 +31,7 @@ type Drag =
   | { kind: 'playhead' }
   | { kind: 'pan'; startX: number; startY: number; from: View }
   | { kind: 'pinch'; startDist: number; startCentre: { x: number; y: number }; from: View }
+  | { kind: 'paint'; last: { x: number; y: number } | null }
 
 export type CanvasProps = {
   project: Project
@@ -54,6 +57,11 @@ export type CanvasProps = {
    * have to line up with the axes, so they need the same mapping.
    */
   onGeometry?: (geometry: CanvasGeometry) => void
+  /** The paint layer the brush writes into, if one is selected. */
+  paintLayerId: string | null
+  brushRadius: number
+  /** Called once when a stroke ends, so a whole stroke is one undo step. */
+  onStrokeEnd: () => void
 }
 
 export type CanvasGeometry = {
@@ -83,6 +91,9 @@ export function FieldCanvas(props: CanvasProps) {
     onOpenEditor,
     onContextMenu,
     onGeometry,
+    paintLayerId,
+    brushRadius,
+    onStrokeEnd,
   } = props
 
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -314,12 +325,55 @@ export function FieldCanvas(props: CanvasProps) {
       return
     }
 
+    if (tool === 'brush' || tool === 'eraser') {
+      dragRef.current = { kind: 'paint', last: null }
+      strokeTo(p)
+      return
+    }
+
     const led = Math.round(geom.xToU(p.x) * (project.ledCount - 1))
     const timeMs = geom.yToV(p.y) * project.durationMs
     const created = createKeyframe(tool, led, timeMs, defaultColor)
     onAdd(created)
     onOpenEditor()
     dragRef.current = { kind: tool, id: created.id, pushed: true }
+  }
+
+  /**
+   * Paints from the previous point to this one. Interpolating rather than
+   * stamping one dab per event: at this resolution a quick sweep across the
+   * canvas produces only a handful of pointer events, which would otherwise
+   * leave a dotted line rather than a stroke.
+   */
+  const strokeTo = (p: { x: number; y: number }) => {
+    const drag = dragRef.current
+    if (drag.kind !== 'paint' || !paintLayerId) return
+    const linear = hexToRgb(defaultColor)
+    const rgb: [number, number, number] = [
+      Math.round(linear[0] * 255),
+      Math.round(linear[1] * 255),
+      Math.round(linear[2] * 255),
+    ]
+    const erase = tool === 'eraser'
+    const to = {
+      x: geom.xToU(p.x) * (project.ledCount - 1),
+      y: geom.yToV(p.y) * (field.height - 1),
+    }
+    const from = drag.last ?? to
+    const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y)))
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps
+      paintDab(
+        paintLayerId,
+        from.x + (to.x - from.x) * t,
+        from.y + (to.y - from.y) * t,
+        brushRadius,
+        rgb,
+        erase,
+      )
+    }
+    dragRef.current = { kind: 'paint', last: to }
+    notifyPaint()
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -387,6 +441,11 @@ export function FieldCanvas(props: CanvasProps) {
       return
     }
 
+    if (drag.kind === 'paint') {
+      strokeTo(p)
+      return
+    }
+
     if (drag.kind === 'none') return
 
     // Points move in both axes; rows only in time; columns only in LED index.
@@ -406,6 +465,10 @@ export function FieldCanvas(props: CanvasProps) {
     clearLongPress()
     const drag = dragRef.current
     if (pointersRef.current.size === 0) dragRef.current = { kind: 'none' }
+    if (drag.kind === 'paint') {
+      onStrokeEnd()
+      return
+    }
     if (
       !movedRef.current &&
       (drag.kind === 'point' || drag.kind === 'row' || drag.kind === 'column')

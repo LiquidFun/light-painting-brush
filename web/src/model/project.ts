@@ -5,6 +5,7 @@ import type {
   KeyframeLayer,
   Layer,
   LayerKind,
+  PaintLayer,
   Pattern,
   PatternKind,
   Project,
@@ -158,6 +159,7 @@ const DEFAULT_LAYER_NAME: Record<LayerKind, string> = {
   keyframes: 'Keyframes',
   pattern: 'Pattern',
   image: 'Image',
+  paint: 'Paint',
 }
 
 export function createLayer(kind: LayerKind, name?: string): Layer {
@@ -175,6 +177,8 @@ export function createLayer(kind: LayerKind, name?: string): Layer {
       return { ...base, kind: 'pattern', pattern: defaultPattern('stripes') }
     case 'image':
       return { ...base, kind: 'image', src: '', fit: 'stretch' }
+    case 'paint':
+      return { ...base, kind: 'paint', src: '' }
   }
 }
 
@@ -189,6 +193,21 @@ export function activeKeyframeLayer(p: Project, id: string | null): KeyframeLaye
   for (let i = p.layers.length - 1; i >= 0; i--) {
     const l = p.layers[i]
     if (isKeyframeLayer(l)) return l
+  }
+  return null
+}
+
+export function isPaintLayer(layer: Layer): layer is PaintLayer {
+  return layer.kind === 'paint'
+}
+
+/** The layer the brush writes into: the requested one, else the topmost paint layer. */
+export function activePaintLayer(p: Project, id: string | null): PaintLayer | null {
+  const named = p.layers.find((l) => l.id === id)
+  if (named && isPaintLayer(named)) return named
+  for (let i = p.layers.length - 1; i >= 0; i--) {
+    const l = p.layers[i]
+    if (isPaintLayer(l)) return l
   }
   return null
 }

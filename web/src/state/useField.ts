@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import { evaluateField } from '../render/field'
 import type { Field } from '../render/field'
 import { subscribeImages } from '../render/imageCache'
+import { subscribePaint } from '../render/paintCache'
 import type { Project } from '../model/types'
 
 export function useField(project: Project): Field {
@@ -19,6 +20,9 @@ export function useField(project: Project): Field {
   const [imageEpoch, setImageEpoch] = useState(0)
 
   useEffect(() => subscribeImages(() => setImageEpoch((n) => n + 1)), [])
+  // Brush strokes mutate the paint surface in place rather than going through
+  // the project, so nothing else would tell the field it is stale mid-stroke.
+  useEffect(() => subscribePaint(() => setImageEpoch((n) => n + 1)), [])
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setField(evaluateField(project)))

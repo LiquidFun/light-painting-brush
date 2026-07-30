@@ -185,6 +185,42 @@ ok('period = full strip does not repeat',
   ok('preview keeps the time axis', top < 0.05 && bottom > 0.95, `${top} -> ${bottom}`)
 }
 
+
+// --- paint layers ---------------------------------------------------------
+{
+  // The raster is stored as a data URL and nothing else is accepted, so a
+  // project stays one self-contained file and the canvas is never tainted.
+  const withPaint = sanitiseProject({
+    ...createProject('p'),
+    layers: [
+      { id: 'pa', kind: 'paint', name: 'Paint', opacity: 1, blend: 'normal', hidden: false,
+        src: 'data:image/png;base64,iVBORw0KGgo=' },
+      { id: 'pb', kind: 'paint', name: 'Remote', opacity: 1, blend: 'normal', hidden: false,
+        src: 'https://example.com/evil.png' },
+      { id: 'pc', kind: 'paint', name: 'None', opacity: 1, blend: 'normal', hidden: false },
+    ],
+  })
+  ok('paint layers survive sanitisation', withPaint.layers.length === 3)
+  ok('paint keeps a data URL', (withPaint.layers[0] as any).src.startsWith('data:image/'))
+  ok('paint rejects a remote src', (withPaint.layers[1] as any).src === '')
+  ok('paint tolerates a missing src', (withPaint.layers[2] as any).src === '')
+
+  // An unpainted layer must be fully transparent, not black: it is composited
+  // over whatever is beneath it.
+  const base = solidProject()
+  const solidOnly = evaluateField(base)
+  const withBlank = evaluateField({
+    ...base,
+    layers: [
+      ...base.layers,
+      { id: 'blank', kind: 'paint', name: 'Paint', opacity: 1, blend: 'normal', hidden: false,
+        src: '' } as any,
+    ],
+  })
+  ok('an empty paint layer changes nothing',
+     withBlank.data.every((v, i) => near(v, solidOnly.data[i])))
+}
+
 console.log(out.join('\n'))
 const passed = out.filter((r) => r.startsWith('PASS')).length
 console.log(`\n${passed}/${out.length} passed`)

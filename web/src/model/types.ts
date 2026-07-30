@@ -154,7 +154,18 @@ export type ImageLayer = LayerBase & {
   fit: ImageFit
 }
 
-export type Layer = KeyframeLayer | PatternLayer | ImageLayer
+/**
+ * A raster painted by hand, exactly ledCount x frameCount — one pixel per LED
+ * per frame, so it is never resampled and what you paint is what the strip
+ * shows. `src` is a PNG data URL; the live pixels live in render/paintCache.ts
+ * while a stroke is in progress.
+ */
+export type PaintLayer = LayerBase & {
+  kind: 'paint'
+  src: string
+}
+
+export type Layer = KeyframeLayer | PatternLayer | ImageLayer | PaintLayer
 export type LayerKind = Layer['kind']
 
 /**
@@ -191,4 +202,7 @@ export type Project = {
 
 export const FPS_OPTIONS = [15, 20, 25, 30, 50] as const
 
-export type Tool = 'select' | 'point' | 'row' | 'column'
+export type Tool = 'select' | 'point' | 'row' | 'column' | 'brush' | 'eraser'
+
+/** Brush radius in pixels — LEDs across, frames down. 0.5 is a single pixel. */
+export const BRUSH_SIZES = [0.5, 1.5, 3, 6] as const

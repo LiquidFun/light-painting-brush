@@ -17,6 +17,7 @@ import {
 import type { LibrarySync } from '../model/library'
 import {
   activeKeyframeLayer,
+  activePaintLayer,
   clampKeyframe,
   createLayer,
   createProject,
@@ -32,6 +33,7 @@ import {
   saveLastOpenedId,
   saveLibrary,
 } from '../model/storage'
+import { forgetPaint } from '../render/paintCache'
 import type { Keyframe, Layer, LayerKind, Project, Tool } from '../model/types'
 
 const HISTORY_LIMIT = 80
@@ -66,7 +68,7 @@ export function useEditor() {
   const [activeLayerId, setActiveLayerId] = useState<string | null>(
     initial.current.layers[initial.current.layers.length - 1]?.id ?? null,
   )
-  const [tool, setTool] = useState<Tool>('select')
+  const [tool, setToolState] = useState<Tool>('select')
   const [librarySync, setLibrarySync] = useState<LibrarySync>('loading')
 
   const projectRef = useRef(project)
@@ -273,9 +275,45 @@ export function useEditor() {
   const removeLayer = useCallback(
     (id: string) => {
       mutate((p) => ({ ...p, layers: p.layers.filter((l) => l.id !== id) }))
+      // Otherwise a new layer that happened to reuse the id would inherit the
+      // old pixels, and the surface would leak for the rest of the session.
+      forgetPaint(id)
       if (activeLayerRef.current === id) setActiveLayer(null)
     },
     [mutate, setActiveLayer],
+  )
+
+  /** The layer the brush writes into. Null until one exists. */
+  const paintLayer = useMemo(
+    () => activePaintLayer(project, activeLayerId),
+    [project, activeLayerId],
+  )
+
+  /**
+   * Picking up the brush creates a layer to paint on if there is not one yet,
+   * because the alternative is a tool that silently does nothing.
+   */
+  const setTool = useCallback(
+    (next: Tool) => {
+      setToolState(next)
+      if (next !== 'brush' && next !== 'eraser') return
+      if (!activePaintLayer(projectRef.current, activeLayerRef.current)) addLayer('paint')
+    },
+    [addLayer],
+  )
+
+  /** Stores a finished stroke. One call per stroke, so one stroke is one undo step. */
+  const commitPaint = useCallback(
+    (id: string, src: string) => {
+      mutate(
+        (p) => ({
+          ...p,
+          layers: p.layers.map((l) => (l.id === id && l.kind === 'paint' ? { ...l, src } : l)),
+        }),
+        true,
+      )
+    },
+    [mutate],
   )
 
   /** `delta` is in stacking order: +1 moves the layer up, toward the viewer. */
@@ -442,6 +480,9 @@ export function useEditor() {
     activeLayerId,
     /** The keyframe layer the canvas tools act on. Null only if none exists yet. */
     drawLayer,
+    /** The raster the brush writes into. Null only if none exists yet. */
+    paintLayer,
+    commitPaint,
     tool,
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,

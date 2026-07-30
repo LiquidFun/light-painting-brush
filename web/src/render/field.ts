@@ -18,8 +18,16 @@ import { easingFn } from '../model/easing'
 import { clamp01, hexToRgb, mixSpace } from '../model/color'
 import type { RGB } from '../model/color'
 import { frameCount, isFlatCurve, sampleCurve } from '../model/project'
-import type { BlendMode, ImageLayer, KeyframeLayer, Keyframe, Project } from '../model/types'
+import type {
+  BlendMode,
+  ImageLayer,
+  KeyframeLayer,
+  Keyframe,
+  PaintLayer,
+  Project,
+} from '../model/types'
 import { getImage } from './imageCache'
+import { getPaintSurface } from './paintCache'
 import { createSampler } from './patterns'
 import type { RGBA, Sampler } from './patterns'
 
@@ -177,6 +185,30 @@ function blendChannel(mode: BlendMode, dst: number, src: number, a: number): num
   }
 }
 
+/**
+ * A paint layer is exactly one pixel per cell, so this is a lookup rather than a
+ * resample — no filtering, no fit modes, nothing that could soften a stroke.
+ */
+function createPaintSampler(layer: PaintLayer, width: number, height: number): Sampler {
+  const surface = getPaintSurface(layer.id, layer.src, width, height)
+  const xMax = width - 1
+  const yMax = height - 1
+  return (u, v, out) => {
+    const x = Math.round(clamp01(u) * xMax)
+    const y = Math.round(clamp01(v) * yMax)
+    const i = (y * surface.width + x) * 4
+    const a = surface.data[i + 3] / 255
+    if (a <= 0) {
+      out[3] = 0
+      return
+    }
+    out[0] = surface.data[i] / 255
+    out[1] = surface.data[i + 1] / 255
+    out[2] = surface.data[i + 2] / 255
+    out[3] = a
+  }
+}
+
 export function createEvaluator(project: Project): Evaluator {
   const { ledCount } = project
   const frames = frameCount(project)
@@ -190,7 +222,9 @@ export function createEvaluator(project: Project): Evaluator {
           ? createKeyframeSampler(l, project)
           : l.kind === 'pattern'
             ? createSampler(l.pattern, project.colorSpace, { width: ledCount, height: frames })
-            : createImageSampler(l, ledCount, frames)
+            : l.kind === 'image'
+              ? createImageSampler(l, ledCount, frames)
+              : createPaintSampler(l, ledCount, frames)
       return { sample, opacity: l.opacity, blend: l.blend }
     })
 

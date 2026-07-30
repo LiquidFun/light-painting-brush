@@ -14,6 +14,7 @@ const ADD: { kind: LayerKind; label: string }[] = [
   { kind: 'keyframes', label: 'Keyframes' },
   { kind: 'pattern', label: 'Pattern' },
   { kind: 'image', label: 'Image' },
+  { kind: 'paint', label: 'Paint' },
 ]
 
 const FITS: { id: ImageFit; label: string }[] = [
@@ -30,6 +31,8 @@ function summarise(layer: Layer): string {
       return layer.pattern.kind
     case 'image':
       return layer.src ? `${formatBytes(layer.src.length)} · ${layer.fit}` : 'no image yet'
+    case 'paint':
+      return layer.src ? formatBytes(layer.src.length) : 'nothing painted yet'
   }
 }
 
@@ -193,6 +196,14 @@ export function LayerPanel({
             <p className="text-xs text-mute">
               Selected, so the canvas tools draw into this layer. Its keyframes are the only
               ones showing handles.
+            </p>
+          )}
+
+          {active.kind === 'paint' && (
+            <p className="text-xs text-mute">
+              Pick the Brush tool and draw on the canvas. One pixel here is one LED on
+              one frame, so nothing is resampled — what you paint is what the strip
+              shows.
             </p>
           )}
 

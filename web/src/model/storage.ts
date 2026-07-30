@@ -207,7 +207,9 @@ function curve(raw: unknown): number[] {
 function sanitiseLayer(raw: unknown, project: Project): Layer | null {
   if (!isObject(raw)) return null
   const kind = raw.kind
-  if (kind !== 'keyframes' && kind !== 'pattern' && kind !== 'image') return null
+  if (kind !== 'keyframes' && kind !== 'pattern' && kind !== 'image' && kind !== 'paint') {
+    return null
+  }
 
   const base = {
     id: str(raw.id, uid()),
@@ -221,6 +223,13 @@ function sanitiseLayer(raw: unknown, project: Project): Layer | null {
 
   if (kind === 'pattern')
     return { ...base, kind, pattern: sanitisePattern(raw.pattern, project) }
+
+  if (kind === 'paint') {
+    // Same data-URL-only rule as image layers: a project stays one file, and a
+    // remote src would taint the canvas the pixels are read back from.
+    const src = typeof raw.src === 'string' && raw.src.startsWith('data:image/') ? raw.src : ''
+    return { ...base, kind, src }
+  }
 
   if (kind === 'image') {
     // Only data URLs: a project must stay one self-contained file, and a remote
