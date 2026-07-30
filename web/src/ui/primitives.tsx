@@ -57,12 +57,15 @@ export function IconButton({
   onClick,
   disabled,
   active,
+  strong,
 }: {
   label: string
   children: ReactNode
   onClick?: () => void
   disabled?: boolean
   active?: boolean
+  /** Heavier fill for actions worth finding at a glance. */
+  strong?: boolean
 }) {
   return (
     <button
@@ -74,11 +77,17 @@ export function IconButton({
       onClick={onClick}
       className={[
         'size-11 shrink-0 grid place-items-center rounded border select-none',
+        // Disabled has to be obvious without colour (§6.13), so it loses the
+        // fill, most of its contrast and its border weight all at once. The
+        // previous styling differed from enabled only by one grey step, which
+        // was invisible on a phone outdoors.
         disabled
-          ? 'border-line text-mute'
+          ? 'border-line/60 text-mute opacity-40 cursor-not-allowed'
           : active
             ? 'border-fg bg-raised text-fg'
-            : 'border-line bg-panel text-dim active:bg-raised',
+            : strong
+              ? 'border-line-strong bg-raised text-fg active:bg-line'
+              : 'border-line bg-panel text-dim active:bg-raised',
       ].join(' ')}
     >
       {children}

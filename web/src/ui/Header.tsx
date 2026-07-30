@@ -77,6 +77,7 @@ export function Header({
       </IconButton>
 
       <IconButton
+        strong
         label={transport.uploading ? 'Uploading…' : 'Upload to the stick'}
         disabled={!canUpload}
         onClick={onUpload}
@@ -86,7 +87,7 @@ export function Header({
           <path d="M2.5 10.5v3h11v-3" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       </IconButton>
-      <IconButton label="Play on the stick" disabled={!canPlay} onClick={onPlay}>
+      <IconButton strong label="Play on the stick" disabled={!canPlay} onClick={onPlay}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
           <path d="M4 2.5l9 5.5-9 5.5V2.5z" fill="currentColor" />
         </svg>
