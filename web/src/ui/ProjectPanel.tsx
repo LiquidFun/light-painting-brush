@@ -109,7 +109,9 @@ export function ProjectPanel({
           min={MIN_FPS}
           max={MAX_FPS}
           display={`${project.fps} fps`}
-          hint="Higher is smoother and proportionally bigger. 25 is plenty for a sweep."
+          hint="Sets the detail along the sweep. Match it to your sweep speed: at
+            7 mm per frame the photograph resolves as finely along time as it does
+            across the LEDs. Costs payload in proportion."
           onCommitStart={() => onPatch({}, true)}
           onChange={(fps) => onPatch({ fps }, false)}
         />

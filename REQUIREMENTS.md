@@ -387,7 +387,7 @@ type Project = {
   name: string
   ledCount: number          // 144
   durationMs: number        // default 5000
-  fps: number               // 25 default; any integer 5-60
+  fps: number               // 25 default; any integer 5-120
   background: Color         // default black — what the field decays toward
   colorSpace: 'oklab' | 'srgb' | 'hsv-short' | 'hsv-long'
   falloffPower: number      // IDW exponent, 0.5–6, default 2

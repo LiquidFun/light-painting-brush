@@ -202,11 +202,17 @@ export type Project = {
 
 /**
  * Any integer rate in this range works: the firmware derives its frame interval
- * from `1000000 / fps`, and nothing downstream cares which value it is. The old
- * fixed list of five was an arbitrary restriction.
+ * from `1000000 / fps`, and nothing downstream cares which value it is.
+ *
+ * The ceiling comes from the strip, not from us. WS2812B clocks at 1.25 us per
+ * bit and 24 bits per LED, so 144 LEDs take 4.32 ms to shift out plus a ~0.3 ms
+ * reset — a hard limit near 215 fps. 120 leaves an 8.3 ms budget against 4.4 ms
+ * of transmission, so there is room for the flash read, the loop and the radio.
+ * Higher would start dropping frames, which stretches the photograph's time
+ * axis — the one failure this whole design exists to avoid.
  */
 export const MIN_FPS = 5
-export const MAX_FPS = 60
+export const MAX_FPS = 120
 
 export type Tool = 'select' | 'point' | 'row' | 'column' | 'brush' | 'eraser'
 
