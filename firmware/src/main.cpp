@@ -105,15 +105,6 @@ void reportBadState(uint8_t op) {
   publish();
 }
 
-// STATE_ERROR carries no animation, so it accepts a new upload just like IDLE.
-//
-// STATE_RECEIVING accepts one too: there is no lock and no ownership (§3.7), so a
-// second person's upload cancels the transfer in progress rather than being
-// refused. Animation::begin frees the old buffer before sizing the new one, and
-// the interrupted client sees the state change on the broadcast and can retry.
-// It is also how a cancelled upload is retried without waiting out the timeout.
-bool acceptsUpload() { return state != STATE_PLAYING; }
-
 void startPlayback() {
   if (!animation.loaded()) {
     reportBadState(OP_PLAY);
@@ -126,18 +117,19 @@ void startPlayback() {
   setState(STATE_PLAYING);
 }
 
+// An upload is always accepted, from any state. There is no lock and no
+// ownership (§3.7): a second person's upload cancels whatever is in progress,
+// and refusing during playback only meant a wasted trip back to the phone —
+// nobody uploads mid-exposure by accident, and if they do the shot was already
+// ruined by the interruption rather than by us accepting it.
 void handleBeginUpload(const uint8_t* payload, size_t len) {
-  if (!acceptsUpload()) {
-    reportBadState(OP_BEGIN_UPLOAD);
-    return;
-  }
   player.stop();
 
   ErrorCode err = animation.begin(payload, len);
   if (err != LS_ERR_NONE) {
     Serial.printf("[upload] rejected, err 0x%02X, maxAlloc %u\n", err,
                   (unsigned)animation.maxAnimationBytes());
-    // No partial allocation is attempted; nothing is loaded (§3.1).
+    // Nothing is stored; the old animation's record is already gone (§4.1).
     setState(STATE_ERROR, err);
     return;
   }

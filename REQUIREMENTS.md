@@ -248,8 +248,9 @@ change and can retry.
 ### 4.1 Behaviour
 
 - On boot: init FastLED, blank the strip, join WiFi, connect to the relay.
-- Accept exactly **one** animation at a time. A new `begin` replaces the previous one
-  — free the old buffer before allocating the new one.
+- Accept exactly **one** animation at a time. A new `begin` replaces the previous
+  one, from any state including `PLAYING`: there is no lock and no ownership
+  (§3.7), so an upload always wins and playback simply stops.
 - Write the payload straight into the `animation` flash partition as it arrives,
   erasing one block ahead of the write cursor so clearing 2.4 MB is spread across
   the transfer rather than blocking for seconds up front. The CRC is accumulated
