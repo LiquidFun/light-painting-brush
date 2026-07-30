@@ -1,6 +1,6 @@
 import { formatBytes, formatSeconds, frameCount, payloadBytes } from '../model/project'
 import type { Project } from '../model/types'
-import { stateLabel } from '../transport/protocol'
+import { DeviceState, stateLabel } from '../transport/protocol'
 import type { Transport } from '../transport/types'
 import { IconButton } from './primitives'
 
@@ -14,6 +14,8 @@ export function Header({
   onOpenProject,
   onOpenLayers,
   onOpenDevice,
+  onUpload,
+  onPlay,
 }: {
   project: Project
   transport: Transport
@@ -24,12 +26,17 @@ export function Header({
   onOpenProject: () => void
   onOpenLayers: () => void
   onOpenDevice: () => void
+  onUpload: () => void
+  onPlay: () => void
 }) {
   const target = transport.selected
   const online = target?.online === true
   const ceiling = transport.maxAnimationBytes
   const bytes = payloadBytes(project)
   const overBudget = ceiling !== null && bytes > ceiling
+  // The two things you do between every shot, without opening the sheet.
+  const canUpload = online && !transport.uploading && !overBudget
+  const canPlay = online && target.state !== DeviceState.IDLE
 
   return (
     <header
@@ -66,6 +73,22 @@ export function Header({
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
           <path d="M10 3l3.5 3.5L10 10" stroke="currentColor" strokeWidth="1.5" />
           <path d="M13.5 6.5H7a4 4 0 000 8h3" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </IconButton>
+
+      <IconButton
+        label={transport.uploading ? 'Uploading…' : 'Upload to the stick'}
+        disabled={!canUpload}
+        onClick={onUpload}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+          <path d="M8 11V2M4.5 5.5L8 2l3.5 3.5" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M2.5 10.5v3h11v-3" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </IconButton>
+      <IconButton label="Play on the stick" disabled={!canPlay} onClick={onPlay}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+          <path d="M4 2.5l9 5.5-9 5.5V2.5z" fill="currentColor" />
         </svg>
       </IconButton>
 

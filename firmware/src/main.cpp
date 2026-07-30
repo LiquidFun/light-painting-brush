@@ -274,7 +274,16 @@ void pollButton() {
     lastButtonMs = now;
     Serial.println("[button] press");
     ledBlackoutAfterShot = false;
-    if (animation.loaded()) startPlayback();
+    if (player.exposing()) {
+      // Toggle, so the one button both starts a shot and aborts one. Restarting
+      // from frame 0 instead — which is what `play` does — is useless here:
+      // your hand is on the stick, so a restart just smears the exposure.
+      Serial.println("[button] stop");
+      player.stop();
+      setState(animation.loaded() ? STATE_READY : STATE_IDLE, lastError);
+    } else if (animation.loaded()) {
+      startPlayback();
+    }
   }
   lastButtonLevel = level;
 }

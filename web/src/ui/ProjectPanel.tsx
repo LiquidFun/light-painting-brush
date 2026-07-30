@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { isHex, normaliseHex } from '../model/color'
 import {
@@ -14,7 +14,7 @@ import { downloadJson, parseImport, slug, toExportFile } from '../model/storage'
 import type { LibrarySync } from '../model/library'
 import { COLOR_SPACES, FPS_OPTIONS } from '../model/types'
 import type { Project } from '../model/types'
-import { Button, Field, Panel, Row, Segmented, Slider, Stat, Toggle } from './primitives'
+import { Button, Field, Panel, Row, Slider, Stat, Toggle } from './primitives'
 
 const SYNC_NOTE: Record<LibrarySync, string> = {
   loading: 'Checking the shared library on the server…',
@@ -51,6 +51,10 @@ export function ProjectPanel({
   onImport: (projects: Project[]) => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const [hex, setHex] = useState(project.background)
+  // Follow the project when it changes underneath us — a different project
+  // opened, an undo, or the colour picker being dragged.
+  useEffect(() => setHex(project.background), [project.background])
   const frames = frameCount(project)
   const bytes = payloadBytes(project)
 
@@ -98,14 +102,17 @@ export function ProjectPanel({
           onChange={(v) => onPatch({ durationMs: v }, false)}
         />
 
-        <Field label="Frame rate">
-          <Segmented
-            label="Frame rate"
-            value={String(project.fps)}
-            options={FPS_OPTIONS.map((f) => ({ id: String(f), label: String(f) }))}
-            onChange={(id) => onPatch({ fps: Number(id) })}
-          />
-        </Field>
+        {/* Indexed rather than continuous: only these rates divide evenly into
+            the frame schedule the firmware clocks out. */}
+        <Slider
+          label="Frame rate"
+          value={Math.max(0, FPS_OPTIONS.indexOf(project.fps as (typeof FPS_OPTIONS)[number]))}
+          min={0}
+          max={FPS_OPTIONS.length - 1}
+          display={`${project.fps} fps`}
+          hint="Higher is smoother and proportionally bigger. 25 is plenty for a sweep."
+          onChange={(i) => onPatch({ fps: FPS_OPTIONS[i] })}
+        />
 
         <div className="grid grid-cols-3 gap-3">
           <Stat label="Frames" value={String(frames)} />
@@ -136,23 +143,37 @@ export function ProjectPanel({
           max={6}
           step={0.1}
           display={project.falloffPower.toFixed(1)}
+          hint="How sharply a keyframe's influence drops with distance. Low spreads
+            colour into soft washes that blend far apart; high keeps each keyframe
+            tight and local. Affects keyframe layers only."
           onCommitStart={() => onPatch({}, true)}
           onChange={(v) => onPatch({ falloffPower: v }, false)}
         />
 
-        <Field label="Background" hint="What the field decays toward outside every radius.">
+        <Field label="Background" hint="The base of the layer stack, and what keyframe layers decay toward.">
           <div className="flex gap-2">
-            <span
-              className="size-10 shrink-0 rounded border border-line-strong"
-              style={{ background: project.background }}
+            <input
+              type="color"
+              className="shrink-0"
+              style={{ width: 56 }}
+              value={project.background}
+              onChange={(e) => onPatch({ background: e.target.value })}
             />
             <input
               type="text"
-              value={project.background}
+              className="min-w-0 flex-1"
+              value={hex}
               spellCheck={false}
+              placeholder="#000000"
               onChange={(e) => {
+                // Kept as a draft while typing. Committing only valid hex is
+                // right, but binding the field to the committed value meant a
+                // half-typed "#ff" was rejected and instantly reverted, so the
+                // field could not be typed into at all.
+                setHex(e.target.value)
                 if (isHex(e.target.value)) onPatch({ background: normaliseHex(e.target.value) })
               }}
+              onBlur={() => setHex(project.background)}
             />
           </div>
         </Field>

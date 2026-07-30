@@ -166,6 +166,7 @@ export function Slider({
   max,
   step = 1,
   display,
+  hint,
   onChange,
   onCommitStart,
   disabled,
@@ -176,6 +177,8 @@ export function Slider({
   max: number
   step?: number
   display?: string
+  /** One line under the track, for controls whose name does not explain them. */
+  hint?: string
   onChange: (v: number) => void
   /** Called on pointer down so a whole drag becomes one undo step. */
   onCommitStart?: () => void
@@ -197,6 +200,7 @@ export function Slider({
         onPointerDown={onCommitStart}
         onChange={(e) => onChange(Number(e.target.value))}
       />
+      {hint && <span className="block text-xs text-mute">{hint}</span>}
     </label>
   )
 }

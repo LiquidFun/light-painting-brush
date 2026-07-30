@@ -92,6 +92,8 @@ export default function App() {
           onOpenProject={() => openSheet('project')}
           onOpenLayers={() => openSheet('layers')}
           onOpenDevice={() => openSheet('device')}
+          onUpload={() => void upload()}
+          onPlay={transport.play}
         />
 
         <div className="flex min-h-0 flex-1">

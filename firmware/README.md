@@ -57,6 +57,9 @@ that must *not* reset the board.
 | `5V` | strip `+5V` (both fed from the power bank, not through USB data) |
 | `GPIO 0` | on-board **BOOT** button — no external part needed |
 
+Pressing BOOT plays the loaded animation, and pressing it again during playback
+stops it.
+
 Keep the strip's 5 V and ground going straight to the power rail, and tie all
 grounds together. Data is 3.3 V into a 5 V strip, which is out of spec and works
 anyway on most hardware — see gotchas.

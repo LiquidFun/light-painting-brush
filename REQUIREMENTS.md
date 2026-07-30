@@ -252,8 +252,10 @@ change and can retry.
   and the button responsive.
 - Respect `loop` and `pingPong`. When neither is set, blank the strip on completion
   and return to `READY`.
-- A second trigger during playback restarts from frame 0. `stop` blanks and returns
-  to `READY` with the buffer intact.
+- A second `play` during playback restarts from frame 0. The BOOT button instead
+  **toggles**: pressing it during playback stops. Restarting from frame 0 there is
+  useless, because a hand is already on the stick and the restart only smears the
+  exposure. `stop` blanks and returns to `READY` with the buffer intact.
 
 ### 4.2 Networking
 
