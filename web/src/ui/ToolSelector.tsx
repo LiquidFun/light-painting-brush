@@ -1,6 +1,6 @@
-import { Segmented } from './primitives'
-import { BRUSH_SIZES } from '../model/types'
+import { MAX_BRUSH, MIN_BRUSH } from '../model/types'
 import type { Tool } from '../model/types'
+import { Segmented, Slider } from './primitives'
 
 const TOOLS: { id: Tool; label: string }[] = [
   { id: 'select', label: 'Select' },
@@ -11,21 +11,22 @@ const TOOLS: { id: Tool; label: string }[] = [
   { id: 'column', label: 'Column' },
 ]
 
-const sizeLabel = (r: number) => (r <= 0.5 ? '1' : String(Math.round(r * 2)))
-
 export function ToolSelector({
   tool,
-  brushRadius,
+  brushSize,
   color,
   onChange,
-  onBrushRadius,
+  onBrushSize,
+  onColor,
 }: {
   tool: Tool
-  brushRadius: number
-  /** The colour the brush lays down — the same one the keyframe editor last set. */
+  /** Diameter in pixels — LEDs across, frames down. */
+  brushSize: number
+  /** The colour the brush lays down. Shared with the keyframe editor. */
   color: string
   onChange: (tool: Tool) => void
-  onBrushRadius: (radius: number) => void
+  onBrushSize: (size: number) => void
+  onColor: (color: string) => void
 }) {
   const painting = tool === 'brush' || tool === 'eraser'
 
@@ -37,22 +38,26 @@ export function ToolSelector({
       <Segmented label="Tool" options={TOOLS} value={tool} onChange={onChange} />
 
       {painting && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-mute">Size</span>
+        <div className="flex items-end gap-2">
           <div className="min-w-0 flex-1">
-            <Segmented
+            <Slider
               label="Brush size"
-              value={String(brushRadius)}
-              options={BRUSH_SIZES.map((r) => ({ id: String(r), label: sizeLabel(r) }))}
-              onChange={(id) => onBrushRadius(Number(id))}
+              value={brushSize}
+              min={MIN_BRUSH}
+              max={MAX_BRUSH}
+              display={`${brushSize} px`}
+              onChange={onBrushSize}
             />
           </div>
-          {/* Eraser ignores the colour, so showing it there would be a lie. */}
+          {/* The eraser ignores the colour, so offering one there would be a lie. */}
           {tool === 'brush' && (
-            <span
+            <input
+              type="color"
               aria-label="Brush colour"
-              className="size-8 shrink-0 rounded border border-line-strong"
-              style={{ background: color }}
+              className="shrink-0"
+              style={{ width: 56 }}
+              value={color}
+              onChange={(e) => onColor(e.target.value)}
             />
           )}
         </div>

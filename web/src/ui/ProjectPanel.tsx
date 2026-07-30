@@ -12,7 +12,7 @@ import {
 } from '../model/project'
 import { downloadJson, parseImport, slug, toExportFile } from '../model/storage'
 import type { LibrarySync } from '../model/library'
-import { COLOR_SPACES, FPS_OPTIONS } from '../model/types'
+import { COLOR_SPACES, MAX_FPS, MIN_FPS } from '../model/types'
 import type { Project } from '../model/types'
 import { Button, Field, Panel, Row, Slider, Stat, Toggle } from './primitives'
 import { ProjectThumb } from './ProjectThumb'
@@ -103,16 +103,15 @@ export function ProjectPanel({
           onChange={(v) => onPatch({ durationMs: v }, false)}
         />
 
-        {/* Indexed rather than continuous: only these rates divide evenly into
-            the frame schedule the firmware clocks out. */}
         <Slider
           label="Frame rate"
-          value={Math.max(0, FPS_OPTIONS.indexOf(project.fps as (typeof FPS_OPTIONS)[number]))}
-          min={0}
-          max={FPS_OPTIONS.length - 1}
+          value={project.fps}
+          min={MIN_FPS}
+          max={MAX_FPS}
           display={`${project.fps} fps`}
           hint="Higher is smoother and proportionally bigger. 25 is plenty for a sweep."
-          onChange={(i) => onPatch({ fps: FPS_OPTIONS[i] })}
+          onCommitStart={() => onPatch({}, true)}
+          onChange={(fps) => onPatch({ fps }, false)}
         />
 
         <div className="grid grid-cols-3 gap-3">

@@ -200,9 +200,16 @@ export type Project = {
   updatedAt: number
 }
 
-export const FPS_OPTIONS = [15, 20, 25, 30, 50] as const
+/**
+ * Any integer rate in this range works: the firmware derives its frame interval
+ * from `1000000 / fps`, and nothing downstream cares which value it is. The old
+ * fixed list of five was an arbitrary restriction.
+ */
+export const MIN_FPS = 5
+export const MAX_FPS = 60
 
 export type Tool = 'select' | 'point' | 'row' | 'column' | 'brush' | 'eraser'
 
-/** Brush radius in pixels — LEDs across, frames down. 0.5 is a single pixel. */
-export const BRUSH_SIZES = [0.5, 1.5, 3, 6] as const
+/** Brush diameter in pixels — LEDs across, frames down. 1 is a single pixel. */
+export const MIN_BRUSH = 1
+export const MAX_BRUSH = 32

@@ -10,7 +10,7 @@ import type {
   PatternKind,
   Project,
 } from './types'
-import { BRIGHTNESS_POINTS, FPS_OPTIONS } from './types'
+import { BRIGHTNESS_POINTS, MIN_FPS } from './types'
 
 export const DEFAULT_LED_COUNT = 144
 export const BYTES_PER_LED = 3
@@ -256,15 +256,17 @@ export function describeOverBudget(p: Project, maxBytes: number): string | null 
   if (bytes <= maxBytes) return null
   const over = bytes - maxBytes
   const fits = maxDurationForBytes(maxBytes, p.fps, p.ledCount)
-  const lowerFps = FPS_OPTIONS.filter(
-    (f) => f < p.fps && payloadBytes({ ...p, fps: f }) <= maxBytes,
-  )
+  // The highest rate that would fit at this duration, rather than the best of a
+  // fixed list — the rate is a free integer now.
+  const framesThatFit = Math.floor(maxBytes / (p.ledCount * BYTES_PER_LED))
+  const fpsThatFits = Math.floor(framesThatFit / (p.durationMs / 1000))
+  const lowerFps = fpsThatFits >= MIN_FPS && fpsThatFits < p.fps ? fpsThatFits : null
   const advice =
     fits >= MIN_DURATION_MS
       ? `Shorten to ${formatSeconds(fits)}` +
-        (lowerFps.length ? ` or drop to ${lowerFps[lowerFps.length - 1]} fps.` : '.')
-      : lowerFps.length
-        ? `Drop to ${lowerFps[lowerFps.length - 1]} fps.`
+        (lowerFps ? ` or drop to ${lowerFps} fps.` : '.')
+      : lowerFps
+        ? `Drop to ${lowerFps} fps.`
         : 'Shorten the animation.'
   return `Animation is ${formatBytes(over)} over the device limit. ${advice}`
 }

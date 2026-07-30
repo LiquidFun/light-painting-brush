@@ -8,7 +8,8 @@ import { useField } from './state/useField'
 import { usePlayback } from './state/usePlayback'
 import { buildPayload } from './render/payload'
 import { serialisePaint } from './render/paintCache'
-import { BRUSH_SIZES } from './model/types'
+import { importImageFile } from './render/imageCache'
+import { MIN_BRUSH } from './model/types'
 import { BrightnessCurve, CURVE_THICKNESS } from './ui/BrightnessCurve'
 import type { CanvasGeometry } from './ui/FieldCanvas'
 import { ContextMenu } from './ui/ContextMenu'
@@ -40,7 +41,9 @@ export default function App() {
   const [autoPlay, setAutoPlay] = useState(false)
   const [lastColor, setLastColor] = useState('#ffffff')
   const [showCurves, setShowCurves] = useState(false)
-  const [brushRadius, setBrushRadius] = useState<number>(BRUSH_SIZES[1])
+  const [dropping, setDropping] = useState(false)
+  const [dropError, setDropError] = useState<string | null>(null)
+  const [brushSize, setBrushSize] = useState(MIN_BRUSH * 3)
   // The curves are separate elements beside the canvas, so they need the
   // canvas's own gutter offset and pan/zoom to stay lined up with the axes.
   const [geometry, setGeometry] = useState<CanvasGeometry>({
@@ -75,6 +78,30 @@ export default function App() {
     })
   }, [autoPlay, transport, field, project])
 
+  /**
+   * Dropping a picture anywhere on the editor adds it as an image layer. Going
+   * via the layer panel first is a lot of taps for the most obvious gesture
+   * there is, and the file input stays for platforms without drag and drop.
+   */
+  const onDrop = useCallback(
+    async (file: File) => {
+      setDropError(null)
+      if (!file.type.startsWith('image/')) {
+        setDropError(`${file.name} is not an image.`)
+        return
+      }
+      try {
+        const src = await importImageFile(file)
+        const layer = editor.addLayer('image')
+        editor.updateLayer(layer.id, { src, name: file.name.replace(/\.[^.]+$/, '') })
+        openSheet('layers')
+      } catch {
+        setDropError(`Could not read ${file.name}.`)
+      }
+    },
+    [editor, openSheet],
+  )
+
   const selected = editor.selected
   const keyframes = editor.drawLayer?.keyframes ?? []
   const menuKeyframe = useMemo(
@@ -83,7 +110,39 @@ export default function App() {
   )
 
   return (
-    <div className="flex h-full flex-col lg:flex-row">
+    <div
+      className="relative flex h-full flex-col lg:flex-row"
+      onDragOver={(e) => {
+        // Only claim the drop if it is actually carrying files.
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        setDropping(true)
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+        setDropping(false)
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        setDropping(false)
+        const file = e.dataTransfer.files[0]
+        if (file) void onDrop(file)
+      }}
+    >
+      {dropping && (
+        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center border-2 border-dashed border-fg bg-bg/80">
+          <p className="text-sm text-fg">Drop an image to add it as a layer</p>
+        </div>
+      )}
+      {dropError && (
+        <p className="absolute inset-x-2 top-2 z-20 rounded border border-line-strong bg-raised p-2 text-center text-sm text-fg">
+          {dropError}{' '}
+          <button type="button" className="underline underline-offset-2" onClick={() => setDropError(null)}>
+            Dismiss
+          </button>
+        </p>
+      )}
       <div className="flex min-h-0 flex-1 flex-col">
         <Header
           project={project}
@@ -131,7 +190,7 @@ export default function App() {
             onOpenEditor={() => openSheet('keyframe')}
             onContextMenu={(id, x, y) => setMenu({ id, x, y })}
             paintLayerId={editor.paintLayer?.id ?? null}
-            brushRadius={brushRadius}
+            brushRadius={brushSize / 2}
             onStrokeEnd={() => {
               const id = editor.paintLayer?.id
               if (id) editor.commitPaint(id, serialisePaint(id))
@@ -183,10 +242,11 @@ export default function App() {
         />
         <ToolSelector
           tool={editor.tool}
-          brushRadius={brushRadius}
+          brushSize={brushSize}
           color={lastColor}
           onChange={editor.setTool}
-          onBrushRadius={setBrushRadius}
+          onBrushSize={setBrushSize}
+          onColor={setLastColor}
         />
       </div>
 

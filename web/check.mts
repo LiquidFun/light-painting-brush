@@ -7,10 +7,19 @@
 //
 // Run through vite-node so the imports resolve the way the app sees them.
 
-import { createProject, flatCurve, isFlatCurve, sampleCurve, axisExtent, createLayer } from './src/model/project'
+import {
+  axisExtent,
+  createLayer,
+  createProject,
+  describeOverBudget,
+  flatCurve,
+  isFlatCurve,
+  payloadBytes,
+  sampleCurve,
+} from './src/model/project'
 import { sanitiseProject, SCHEMA_VERSION } from './src/model/storage'
 import { evaluateField, evaluatePreview } from './src/render/field'
-import { BRIGHTNESS_POINTS } from './src/model/types'
+import { BRIGHTNESS_POINTS, MAX_FPS, MIN_FPS } from './src/model/types'
 import type { Project } from './src/model/types'
 
 const out: string[] = []
@@ -219,6 +228,30 @@ ok('period = full strip does not repeat',
   })
   ok('an empty paint layer changes nothing',
      withBlank.data.every((v, i) => near(v, solidOnly.data[i])))
+}
+
+// --- frame rate is a free integer now -------------------------------------
+{
+  const p = createProject('fps')
+  ok('fps clamps to the range',
+     sanitiseProject({ ...p, fps: 999 }).fps === MAX_FPS &&
+     sanitiseProject({ ...p, fps: 1 }).fps === MIN_FPS)
+  ok('an off-list fps survives', sanitiseProject({ ...p, fps: 37 }).fps === 37)
+  ok('a fractional fps rounds', sanitiseProject({ ...p, fps: 24.6 }).fps === 25)
+  ok('a junk fps falls back to 25', sanitiseProject({ ...p, fps: 'x' }).fps === 25)
+
+  // The over-budget advice has to name a rate that actually fits.
+  const big = { ...createProject('big'), durationMs: 20000, fps: 50 }
+  const limit = 60000
+  const msg = describeOverBudget(big, limit) ?? ''
+  const named = /drop to (\d+) fps/.exec(msg)
+  ok('over-budget names a rate', named !== null, msg)
+  if (named) {
+    const suggested = Number(named[1])
+    ok('the suggested rate fits', payloadBytes({ ...big, fps: suggested }) <= limit,
+       `${suggested} fps -> ${payloadBytes({ ...big, fps: suggested })} of ${limit}`)
+    ok('the suggested rate is below the current one', suggested < big.fps)
+  }
 }
 
 console.log(out.join('\n'))

@@ -17,7 +17,14 @@ import {
   sampleCurve,
   uid,
 } from './project'
-import { BLEND_MODES, BRIGHTNESS_POINTS, EASING_NAMES, FPS_OPTIONS, PATTERN_KINDS } from './types'
+import {
+  BLEND_MODES,
+  BRIGHTNESS_POINTS,
+  EASING_NAMES,
+  MAX_FPS,
+  MIN_FPS,
+  PATTERN_KINDS,
+} from './types'
 import type {
   BlendMode,
   ColorRamp,
@@ -269,9 +276,7 @@ export function sanitiseProject(raw: unknown): Project {
   const base = createProject()
   if (!isObject(raw)) return base
 
-  const fps = FPS_OPTIONS.includes(num(raw.fps, 25) as (typeof FPS_OPTIONS)[number])
-    ? num(raw.fps, 25)
-    : 25
+  const fps = Math.round(clamp(num(raw.fps, 25), MIN_FPS, MAX_FPS))
   const playback = isObject(raw.playback) ? raw.playback : {}
 
   const project: Project = {
