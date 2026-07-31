@@ -15,20 +15,44 @@ export type ImageSample = {
   data: Float32Array
 }
 
-const MAX_ENTRIES = 8
+/**
+ * Bounded by bytes, not by entry count.
+ *
+ * A count was the wrong unit and caused a livelock. Entries differ in size by
+ * three orders of magnitude — a full-resolution resample of a minute-long
+ * project is megabytes, a library thumbnail is kilobytes — and the same image
+ * legitimately occupies one entry per size it is read at. With a count of eight,
+ * the canvas and the library kept evicting each other's entry, re-decoding, and
+ * notifying, forever.
+ */
+const MAX_BYTES = 64 * 1024 * 1024
+/** Never evict below this, however large the entries: something is in use. */
+const MIN_ENTRIES = 4
 
 /** A null value is a decode that failed, cached so it is not retried forever. */
 const cache = new Map<string, ImageSample | null>()
 const inFlight = new Set<string>()
 const listeners = new Set<() => void>()
 
+const bytesOf = (sample: ImageSample | null) =>
+  sample ? sample.data.byteLength : 0
+
+let cachedBytes = 0
+
 export type Orientation = { rotation: ImageRotation; flipX: boolean; flipY: boolean }
 
 const keyOf = (src: string, width: number, height: number, fit: ImageFit, o: Orientation) =>
   `${width}x${height}|${fit}|${o.rotation}|${o.flipX ? 'x' : ''}${o.flipY ? 'y' : ''}|${src}`
 
+// Coalesced: a library of N images produces N results, and firing per result
+// made every listener re-evaluate its whole field N times.
+let notifyPending = 0
 function notify() {
-  for (const fn of listeners) fn()
+  if (notifyPending) return
+  notifyPending = requestAnimationFrame(() => {
+    notifyPending = 0
+    for (const fn of listeners) fn()
+  })
 }
 
 export function subscribeImages(fn: () => void): () => void {
@@ -49,7 +73,14 @@ export function getImage(
 ): ImageSample | null {
   if (!src) return null
   const key = keyOf(src, width, height, fit, orientation)
-  if (cache.has(key)) return cache.get(key) ?? null
+  if (cache.has(key)) {
+    const hit = cache.get(key) ?? null
+    // Re-insert so Map order is least-recently-used. Without this, eviction
+    // walks insertion order and happily drops the entry being read every frame.
+    cache.delete(key)
+    cache.set(key, hit)
+    return hit
+  }
   if (inFlight.has(key)) return null
 
   inFlight.add(key)
@@ -61,11 +92,15 @@ export function getImage(
 
 function store(key: string, sample: ImageSample | null) {
   inFlight.delete(key)
-  if (cache.size >= MAX_ENTRIES) {
-    const oldest = cache.keys().next()
-    if (!oldest.done) cache.delete(oldest.value)
-  }
   cache.set(key, sample)
+  cachedBytes += bytesOf(sample)
+
+  while (cachedBytes > MAX_BYTES && cache.size > MIN_ENTRIES) {
+    const oldest = cache.keys().next()
+    if (oldest.done || oldest.value === key) break
+    cachedBytes -= bytesOf(cache.get(oldest.value) ?? null)
+    cache.delete(oldest.value)
+  }
   notify()
 }
 

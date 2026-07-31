@@ -33,7 +33,16 @@ export function subscribePaint(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
-const notify = () => listeners.forEach((fn) => fn())
+// Coalesced to one per frame, like the image cache: a brush stroke fires this
+// per pointer event, and every subscriber re-evaluates a whole field.
+let notifyPending = 0
+function notify() {
+  if (notifyPending) return
+  notifyPending = requestAnimationFrame(() => {
+    notifyPending = 0
+    for (const fn of listeners) fn()
+  })
+}
 
 /** Call after a burst of dabs to make the field re-evaluate. */
 export const notifyPaint = notify
