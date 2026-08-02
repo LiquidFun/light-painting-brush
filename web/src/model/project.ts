@@ -82,6 +82,7 @@ export function createKeyframe(
     color,
     brightness: 1,
     radius: 0.35,
+    softness: 0.35,
     easing: 'smoothstep',
     hard: false,
   }

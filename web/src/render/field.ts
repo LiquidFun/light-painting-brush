@@ -31,8 +31,19 @@ import { getPaintSurface } from './paintCache'
 import { createSampler } from './patterns'
 import type { RGBA, Sampler } from './patterns'
 
-/** Weight of the "nothing here" sample that pulls a keyframe layer's alpha down. */
-export const BACKGROUND_WEIGHT = 1e-3
+/**
+ * Coverage: how much of this cell a keyframe claims, 0..1.
+ *
+ * Alpha used to come from the inverse-distance weights themselves, as
+ * `total / (total + BACKGROUND_WEIGHT)`. Those weights are unbounded at a
+ * keyframe's own position, so that saturated at 1 across essentially the whole
+ * radius and then fell off a cliff — every keyframe rendered as a hard disc
+ * however wide its radius or gentle its easing.
+ *
+ * Coverage is derived from the falloff shape instead, so radius, easing and
+ * softness all become visible. The distance weights still decide which colour
+ * wins where, which is what they are actually good at.
+ */
 
 const KIND_POINT = 0
 const KIND_ROW = 1
@@ -56,6 +67,7 @@ function createKeyframeSampler(layer: KeyframeLayer, project: Project): Sampler 
   const uk = new Float64Array(n)
   const vk = new Float64Array(n)
   const radius = new Float64Array(n)
+  const inner = new Float64Array(n)
   const bright = new Float64Array(n)
   const hard = new Uint8Array(n)
   const ease: ((t: number) => number)[] = new Array(n)
@@ -72,6 +84,9 @@ function createKeyframeSampler(layer: KeyframeLayer, project: Project): Sampler 
     uk[i] = k.led / uDiv
     vk[i] = k.timeMs / vDiv
     radius[i] = Math.max(k.radius, 1e-4)
+    // Where the fade starts, as a fraction of the radius. softness 0 puts it at
+    // the rim (a hard disc), softness 1 at the centre.
+    inner[i] = 1 - clamp01(k.softness)
     bright[i] = k.brightness
     hard[i] = k.hard ? 1 : 0
     ease[i] = easingFn(k.easing)
@@ -82,6 +97,7 @@ function createKeyframeSampler(layer: KeyframeLayer, project: Project): Sampler 
 
   return (u, v, out) => {
     let total = 0
+    let coverage = 0
 
     // A hard keyframe wins outright inside its radius; nearest one takes it.
     // Without this the tool can only make soft washes.
@@ -109,9 +125,14 @@ function createKeyframeSampler(layer: KeyframeLayer, project: Project): Sampler 
         hardWinner = i
       }
 
-      const t = d / r
-      const falloff = 1 - ease[i](t)
-      const w = falloff <= 0 ? 0 : Math.pow(falloff, p) / Math.pow(Math.max(d, 1e-6), p)
+      // Full strength inside the hard core, then eased out across the soft band.
+      const edge = inner[i]
+      const t = edge >= 1 ? 0 : (d / r - edge) / (1 - edge)
+      const cover = t <= 0 ? 1 : 1 - ease[i](t)
+      coverage += cover - coverage * cover  // soft union of overlapping keyframes
+
+      // Distance weights still choose the colour; they no longer set the alpha.
+      const w = Math.pow(Math.max(cover, 1e-6), p) / Math.pow(Math.max(d, 1e-6), p)
       weights[i] = w
       total += w
     }
@@ -129,7 +150,7 @@ function createKeyframeSampler(layer: KeyframeLayer, project: Project): Sampler 
       // A hard keyframe means a crisp line, so it must be fully opaque.
       alpha = 1
     } else {
-      alpha = total / (total + BACKGROUND_WEIGHT)
+      alpha = clamp01(coverage)
     }
 
     space.mix(comps, weights, n, total, mixed)

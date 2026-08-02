@@ -57,6 +57,18 @@ export function KeyframeEditor({
         onChange={(v) => onChange({ radius: v / 100 }, false)}
       />
 
+      <Slider
+        label="Softness"
+        value={Math.round(keyframe.softness * 100)}
+        min={0}
+        max={100}
+        display={keyframe.softness === 0 ? 'hard edge' : `${Math.round(keyframe.softness * 100)}%`}
+        hint="How much of the radius is spent fading out. 0 is a hard disc, 100% fades
+          from the centre. The easing shapes the fade itself."
+        onCommitStart={() => onChange({}, true)}
+        onChange={(v) => onChange({ softness: v / 100 }, false)}
+      />
+
       <Field label="Easing" hint="Shapes the falloff across the radius.">
         <select
           value={keyframe.easing}

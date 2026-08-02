@@ -111,9 +111,9 @@ export function ProjectPanel({
           max={6}
           step={0.1}
           display={project.falloffPower.toFixed(1)}
-          hint="How sharply a keyframe's influence drops with distance. Low spreads
-            colour into soft washes that blend far apart; high keeps each keyframe
-            tight and local. Affects keyframe layers only."
+          hint="Which keyframe's colour wins where they overlap. Low lets distant ones
+            bleed in; high keeps each colour local. It does not change the edges —
+            that is Softness, on the keyframe itself."
           onCommitStart={() => onPatch({}, true)}
           onChange={(v) => onPatch({ falloffPower: v }, false)}
         />

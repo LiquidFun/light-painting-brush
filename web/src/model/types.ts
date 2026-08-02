@@ -43,6 +43,13 @@ export type Keyframe = {
   brightness: number
   /** 0..1, normalised influence radius. */
   radius: number
+  /**
+   * 0..1, the outer fraction of the radius spent fading out — a soft brush edge.
+   *
+   * 0 is a hard disc: full strength right up to the radius, then nothing.
+   * 1 fades from the centre outward. The easing shapes the fade itself.
+   */
+  softness: number
   /** Applied to normalised distance before weighting. */
   easing: EasingName
   /** Nearest-neighbour within radius, hard edge — the only way to get a crisp line. */

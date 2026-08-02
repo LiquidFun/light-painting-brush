@@ -111,6 +111,9 @@ function sanitiseKeyframe(raw: unknown, project: Project): Keyframe | null {
       color: color(raw.color, '#ffffff'),
       brightness: num(raw.brightness, 1),
       radius: num(raw.radius, 0.35),
+      // 0 for a keyframe that predates the control, not createKeyframe's
+      // default: an existing design must not soften itself on load.
+      softness: clamp(num(raw.softness, 0), 0, 1),
       easing,
       hard: bool(raw.hard, false),
     },

@@ -9,6 +9,7 @@
 
 import {
   axisExtent,
+  createKeyframe,
   createLayer,
   createProject,
   describeOverBudget,
@@ -311,6 +312,44 @@ ok('period = full strip does not repeat',
   const b = evaluatePreview(painted, 44, 30)
   ok('preview evaluation is stable across calls',
      a.data.every((v, i) => near(v, b.data[i])))
+}
+
+
+// --- keyframe softness ----------------------------------------------------
+{
+  // A single white column on black: the alpha profile across the strip is what
+  // "soft" actually means, and it used to be flat regardless of every control.
+  const columnAt = (softness: number) => {
+    const layer = createLayer('keyframes') as any
+    layer.keyframes = [{ ...createKeyframe('column', 72, 0, '#ffffff'),
+                         radius: 0.35, softness, easing: 'smoothstep', hard: false }]
+    const p: Project = { ...createProject('s'), ledCount: 144, durationMs: 1000,
+                         fps: 25, layers: [layer] }
+    const f = evaluateField(p)
+    return (led: number) => f.data[led * 3]
+  }
+
+  const hard = columnAt(0)
+  const soft = columnAt(0.7)
+  ok('both peak at the keyframe', near(hard(72), 1, 1e-3) && near(soft(72), 1, 1e-3))
+  ok('softness 0 stays full across the radius', hard(72 + 30) > 0.99, String(hard(72 + 30)))
+  ok('softness 0.7 has faded by the same point', soft(72 + 30) < 0.7, String(soft(72 + 30)))
+  ok('softer is never brighter further out',
+     [10, 20, 30, 40].every((d) => soft(72 + d) <= hard(72 + d) + 1e-9))
+  ok('both reach the background outside the radius',
+     near(hard(72 + 55), 0, 1e-6) && near(soft(72 + 55), 0, 1e-6))
+
+  // The fade has to be monotonic, or the edge shows a ring.
+  const values = Array.from({ length: 50 }, (_, d) => soft(72 + d))
+  ok('the soft falloff is monotonic',
+     values.every((v, i) => i === 0 || v <= values[i - 1] + 1e-9))
+
+  ok('a keyframe with no softness field loads as a hard edge',
+     (sanitiseProject({ ...createProject('k'), layers: [{ id: 'l', kind: 'keyframes',
+        name: 'K', opacity: 1, blend: 'normal', hidden: false,
+        keyframes: [{ id: 'k1', kind: 'point', led: 0, timeMs: 0, color: '#fff',
+                      brightness: 1, radius: 0.3, easing: 'smoothstep', hard: false }] }] })
+        .layers[0] as any).keyframes[0].softness === 0)
 }
 
 console.log(out.join('\n'))

@@ -418,6 +418,7 @@ type Keyframe = {
   color: Color
   brightness: number        // 0..1, interpolated as its own scalar field
   radius: number            // 0..1, normalised influence radius; default 0.35
+  softness: number          // 0..1, outer fraction of the radius spent fading
   easing: EasingName
   hard: boolean             // true = nearest-neighbour within radius, hard edge
 }
@@ -464,17 +465,33 @@ row:     d = |v - v_k|          // ignores u — the whole strip at one instant
 column:  d = |u - u_k|          // ignores v — one LED for the whole animation
 ```
 
-Weight, with `p = falloffPower` and `e` the keyframe's easing curve:
+Each keyframe has a hard core and a soft edge. `softness` is the outer fraction of
+the radius spent fading, and `e` is the keyframe's easing:
 
 ```
-t = clamp(d / radius_k, 0, 1)
-w = (1 - e(t))^p / max(d, 1e-6)^p
+t     = clamp((d / radius_k - (1 - softness_k)) / softness_k, 0, 1)
+cover = 1 - e(t)                        // 1 in the core, 0 at the radius
 ```
 
-Result is the weighted mean of all keyframe colours, plus the project background at a
-small constant weight so regions outside every radius decay to background rather than
-being colonised by the nearest distant keyframe. Brightness interpolates as a separate
-scalar field using the same weights.
+**Coverage sets alpha**, as a soft union over the keyframes:
+`alpha = 1 - Π(1 - cover_k)`. Outside every radius it is 0 and the layer is
+transparent, so the background shows through.
+
+The distance weights decide only *which colour wins where*, with
+`p = falloffPower`:
+
+```
+w = cover^p / max(d, 1e-6)^p
+```
+
+Alpha must not come from `w`. Inverse-distance weights are unbounded at a
+keyframe's own position, so any alpha derived from them saturates across the
+whole radius and drops off a cliff at the rim — every keyframe renders as a hard
+disc however wide its radius or gentle its easing. That was the original design
+and it was wrong.
+
+Result is the weighted mean of all keyframe colours. Brightness interpolates as a
+separate scalar field using the same weights.
 
 Where `hard` is set, that keyframe wins outright inside its radius instead of
 blending — the only way to get a crisp edge out of a distance field.
