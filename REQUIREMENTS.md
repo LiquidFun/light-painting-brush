@@ -563,6 +563,17 @@ Three tiers, all live: the canvas itself; a 1D strip bar showing exactly what th
 physical strip displays at the playhead time; and play, which animates the playhead
 at the project fps and drives the bar.
 
+Plus an optional **3D view**, selected from the header and never the default. The
+2D canvas is the photograph for one specific sweep — straight, level, constant
+speed — which is the sweep worth designing against but not the only one people
+use. The 3D view places every LED of every frame where it would physically be for
+a chosen path (spin, corkscrew, pendulum, wander) and lets the light accumulate,
+additively, on a black background.
+
+It is loaded on demand. A 3D library is several hundred kilobytes and most
+sessions never open it, so it must be a separate chunk rather than a cost paid by
+everyone at first paint.
+
 ### 6.9 Power estimate
 
 Peak and mean current across the whole animation at 20 mA per lit channel. Display

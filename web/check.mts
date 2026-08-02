@@ -22,6 +22,8 @@ import {
 import { sanitiseProject, SCHEMA_VERSION } from './src/model/storage'
 import { createEvaluator, evaluateField, evaluatePreview } from './src/render/field'
 import { BRIGHTNESS_POINTS, MAX_FPS, MIN_FPS } from './src/model/types'
+import { DEFAULT_PATH, PATH_KINDS, poseAt, usedParams } from './src/render/paths'
+import type { PathParams, Pose } from './src/render/paths'
 import type { Project } from './src/model/types'
 
 const out: string[] = []
@@ -350,6 +352,57 @@ ok('period = full strip does not repeat',
         keyframes: [{ id: 'k1', kind: 'point', led: 0, timeMs: 0, color: '#fff',
                       brightness: 1, radius: 0.3, easing: 'smoothstep', hard: false }] }] })
         .layers[0] as any).keyframes[0].softness === 0)
+}
+
+
+// --- 3D sweep paths -------------------------------------------------------
+{
+  const pose: Pose = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 1, dz: 0 }
+  const at = (p: PathParams, t: number) => { poseAt(p, t, pose); return { ...pose } }
+  const unit = (q: Pose) => Math.abs(Math.hypot(q.dx, q.dy, q.dz) - 1) < 1e-9
+
+  for (const { id } of PATH_KINDS) {
+    const p = { ...DEFAULT_PATH, kind: id, tilt: 30 }
+    // A non-unit direction would stretch the stick, so the LEDs would no longer
+    // be 1 m apart end to end.
+    ok(`${id}: direction stays a unit vector`,
+       [0, 0.13, 0.5, 0.77, 1].every((t) => unit(at(p, t))))
+    ok(`${id}: finite everywhere`,
+       [0, 0.5, 1].every((t) => {
+         const q = at(p, t)
+         return [q.ox, q.oy, q.oz, q.dx, q.dy, q.dz].every(Number.isFinite)
+       }))
+  }
+
+  // Upright means upright: a spin with no tilt traces a line, not a disc.
+  const flat = at({ ...DEFAULT_PATH, kind: 'circle', tilt: 0 }, 0.3)
+  ok('an untilted spin keeps the stick vertical', near(flat.dy, 1, 1e-9))
+
+  // A tilted spin must actually come back round.
+  const spin = { ...DEFAULT_PATH, kind: 'circle' as const, tilt: 45, turns: 1 }
+  const start = at(spin, 0)
+  const half = at(spin, 0.5)
+  const end = at(spin, 1)
+  ok('a full turn returns to its start',
+     near(start.dx, end.dx, 1e-9) && near(start.dz, end.dz, 1e-9))
+  ok('half a turn points the opposite way', near(half.dx, -start.dx, 1e-9))
+
+  // Corkscrew is a spin that also advances.
+  const screw = { ...DEFAULT_PATH, kind: 'corkscrew' as const, distance: 4, tilt: 30 }
+  ok('a corkscrew advances along its axis',
+     near(at(screw, 0).ox, -2) && near(at(screw, 1).ox, 2))
+
+  // Wander must be deterministic, or the preview would never sit still.
+  const w = { ...DEFAULT_PATH, kind: 'wander' as const, seed: 7 }
+  const once = at(w, 0.42)
+  const twice = at(w, 0.42)
+  ok('wander is deterministic',
+     once.ox === twice.ox && once.oy === twice.oy && once.dz === twice.dz)
+  ok('a different seed wanders differently',
+     Math.abs(at(w, 0.42).oz - at({ ...w, seed: 8 }, 0.42).oz) > 1e-6)
+
+  ok('each mode only offers parameters it uses',
+     PATH_KINDS.every(({ id }) => usedParams(id).length > 0))
 }
 
 console.log(out.join('\n'))

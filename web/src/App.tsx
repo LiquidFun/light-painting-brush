@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { frameCount } from './model/project'
 import { loadPrefs, savePrefs } from './model/storage'
@@ -11,6 +11,11 @@ import { serialisePaint } from './render/paintCache'
 import { importImageFile } from './render/imageCache'
 import { MIN_BRUSH } from './model/types'
 import { BrightnessCurve, CURVE_THICKNESS } from './ui/BrightnessCurve'
+// three.js is ~600 KB and most sessions never open the 3D view, so it is split
+// into its own chunk and fetched the first time it is asked for.
+const Preview3D = lazy(() =>
+  import('./ui/Preview3D').then((m) => ({ default: m.Preview3D })),
+)
 import type { CanvasGeometry } from './ui/FieldCanvas'
 import { ContextMenu } from './ui/ContextMenu'
 import type { ContextTarget } from './ui/ContextMenu'
@@ -40,6 +45,7 @@ export default function App() {
   const [menu, setMenu] = useState<ContextTarget | null>(null)
   const [lastColor, setLastColor] = useState('#ffffff')
   const [showCurves, setShowCurves] = useState(false)
+  const [view, setView] = useState<'2d' | '3d'>('2d')
   const [dropping, setDropping] = useState(false)
   const [dropError, setDropError] = useState<string | null>(null)
   const [brushSize, setBrushSize] = useState(MIN_BRUSH * 3)
@@ -156,93 +162,110 @@ export default function App() {
           onOpenProject={() => openSheet('project')}
           onOpenLayers={() => openSheet('layers')}
           onOpenDevice={() => openSheet('device')}
+          view={view}
+          onView={setView}
           onUpload={() => void upload()}
           onPlay={transport.play}
           onStop={transport.stop}
         />
 
-        <div className="flex min-h-0 flex-1">
-          {showCurves && (
-            <BrightnessCurve
-              axis="y"
-              values={project.brightnessY}
-              origin={geometry.originY}
-              pan={geometry.panY}
-              span={geometry.spanY}
-              onChange={(brightnessY, push) =>
-                editor.patchProject({ brightnessY }, push)
-              }
-            />
-          )}
-          <FieldCanvas
-            onGeometry={setGeometry}
-            project={project}
-            keyframes={keyframes}
-            field={field}
-            playheadMs={playhead.timeMs}
-            selectedId={editor.selectedId}
-            tool={editor.tool}
-            defaultColor={lastColor}
-            onAdd={editor.addKeyframe}
-            onSelect={editor.select}
-            onMove={(id, patch, push) => editor.updateKeyframe(id, patch, push)}
-            onScrub={(ms) => {
-              playhead.pause()
-              playhead.setTime(ms)
-            }}
-            onOpenEditor={() => openSheet('layers')}
-            onContextMenu={(id, x, y) => setMenu({ id, x, y })}
-            paintLayerId={editor.paintLayer?.id ?? null}
-            brushRadius={brushSize / 2}
-            onStrokeEnd={() => {
-              const id = editor.paintLayer?.id
-              if (id) editor.commitPaint(id, serialisePaint(id))
-            }}
-          />
-        </div>
-
-        {showCurves && (
-          <div className="flex">
-            <div className="shrink-0" style={{ width: CURVE_THICKNESS }} />
-            <div className="min-w-0 flex-1">
+        {view === '3d' ? (
+          <Suspense
+            fallback={
+              <div className="grid min-h-0 flex-1 place-items-center text-sm text-mute">
+                Loading the 3D view…
+              </div>
+            }
+          >
+            <Preview3D field={field} />
+          </Suspense>
+        ) : (
+          <>
+          <div className="flex min-h-0 flex-1">
+            {showCurves && (
               <BrightnessCurve
-                axis="x"
-                values={project.brightnessX}
-                origin={geometry.originX}
-                pan={geometry.panX}
-                span={geometry.spanX}
-                onChange={(brightnessX, push) =>
-                  editor.patchProject({ brightnessX }, push)
+                axis="y"
+                values={project.brightnessY}
+                origin={geometry.originY}
+                pan={geometry.panY}
+                span={geometry.spanY}
+                onChange={(brightnessY, push) =>
+                  editor.patchProject({ brightnessY }, push)
                 }
               />
-            </div>
+            )}
+            <FieldCanvas
+              onGeometry={setGeometry}
+              project={project}
+              keyframes={keyframes}
+              field={field}
+              playheadMs={playhead.timeMs}
+              selectedId={editor.selectedId}
+              tool={editor.tool}
+              defaultColor={lastColor}
+              onAdd={editor.addKeyframe}
+              onSelect={editor.select}
+              onMove={(id, patch, push) => editor.updateKeyframe(id, patch, push)}
+              onScrub={(ms) => {
+                playhead.pause()
+                playhead.setTime(ms)
+              }}
+              onOpenEditor={() => openSheet('layers')}
+              onContextMenu={(id, x, y) => setMenu({ id, x, y })}
+              paintLayerId={editor.paintLayer?.id ?? null}
+              brushRadius={brushSize / 2}
+              onStrokeEnd={() => {
+                const id = editor.paintLayer?.id
+                if (id) editor.commitPaint(id, serialisePaint(id))
+              }}
+            />
           </div>
+
+          {showCurves && (
+            <div className="flex">
+              <div className="shrink-0" style={{ width: CURVE_THICKNESS }} />
+              <div className="min-w-0 flex-1">
+                <BrightnessCurve
+                  axis="x"
+                  values={project.brightnessX}
+                  origin={geometry.originX}
+                  pan={geometry.panX}
+                  span={geometry.spanX}
+                  onChange={(brightnessX, push) =>
+                    editor.patchProject({ brightnessX }, push)
+                  }
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 px-2 py-1">
+            <p className="num min-w-0 flex-1 truncate text-center text-[10px] text-mute">
+              LED index across · time downward — this is what the photograph will look like
+            </p>
+            <button
+              type="button"
+              aria-pressed={showCurves}
+              onClick={() => setShowCurves((v) => !v)}
+              className={[
+                'shrink-0 rounded border px-2 py-1 text-[10px]',
+                showCurves ? 'border-fg text-fg' : 'border-line text-mute',
+              ].join(' ')}
+            >
+              Brightness
+            </button>
+          </div>
+
+          <StripBar field={field} timeMs={playhead.timeMs} fps={project.fps} />
+          <Transport
+            playhead={playhead}
+            durationMs={project.durationMs}
+            fps={project.fps}
+            frameCount={frameCount(project)}
+          />
+          </>
         )}
 
-        <div className="flex items-center gap-2 px-2 py-1">
-          <p className="num min-w-0 flex-1 truncate text-center text-[10px] text-mute">
-            LED index across · time downward — this is what the photograph will look like
-          </p>
-          <button
-            type="button"
-            aria-pressed={showCurves}
-            onClick={() => setShowCurves((v) => !v)}
-            className={[
-              'shrink-0 rounded border px-2 py-1 text-[10px]',
-              showCurves ? 'border-fg text-fg' : 'border-line text-mute',
-            ].join(' ')}
-          >
-            Brightness
-          </button>
-        </div>
-
-        <StripBar field={field} timeMs={playhead.timeMs} fps={project.fps} />
-        <Transport
-          playhead={playhead}
-          durationMs={project.durationMs}
-          fps={project.fps}
-          frameCount={frameCount(project)}
-        />
         <ToolSelector
           tool={editor.tool}
           brushSize={brushSize}

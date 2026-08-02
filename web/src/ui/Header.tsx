@@ -14,6 +14,8 @@ export function Header({
   onOpenProject,
   onOpenLayers,
   onOpenDevice,
+  view,
+  onView,
   onUpload,
   onPlay,
   onStop,
@@ -27,6 +29,8 @@ export function Header({
   onOpenProject: () => void
   onOpenLayers: () => void
   onOpenDevice: () => void
+  view: '2d' | '3d'
+  onView: (view: '2d' | '3d') => void
   onUpload: () => void
   onPlay: () => void
   onStop: () => void
@@ -61,6 +65,25 @@ export function Header({
           {ceiling !== null && ` / ${formatBytes(ceiling)}`}
         </span>
       </button>
+
+      {/* The 2D canvas is the photograph for one specific sweep; 3D is the same
+          animation swept the ways a stick actually moves. */}
+      <div className="flex shrink-0 overflow-hidden rounded border border-line">
+        {(['2d', '3d'] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={view === v}
+            onClick={() => onView(v)}
+            className={[
+              'h-11 w-9 text-xs uppercase',
+              view === v ? 'bg-raised text-fg font-medium' : 'text-mute active:bg-raised',
+            ].join(' ')}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
 
       <IconButton label={`Layers (${project.layers.length})`} onClick={onOpenLayers}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
