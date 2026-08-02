@@ -278,7 +278,12 @@ export function useEditor() {
       // Otherwise a new layer that happened to reuse the id would inherit the
       // old pixels, and the surface would leak for the rest of the session.
       forgetPaint(id)
-      if (activeLayerRef.current === id) setActiveLayer(null)
+      if (activeLayerRef.current === id) {
+        // Fall to the new top layer rather than nothing: with no selection the
+        // panel shows no editor at all, which reads as the controls vanishing.
+        const remaining = projectRef.current.layers.filter((l) => l.id !== id)
+        setActiveLayer(remaining[remaining.length - 1]?.id ?? null)
+      }
     },
     [mutate, setActiveLayer],
   )
@@ -337,15 +342,16 @@ export function useEditor() {
   /** Applies `fn` to the keyframes of the draw layer, creating one if needed. */
   const mutateKeyframes = useCallback(
     (fn: (keyframes: Keyframe[], project: Project) => Keyframe[], push = true) => {
-      let createdId: string | null = null
+      let wroteTo: string | null = null
       mutate((p) => {
         const existing = activeKeyframeLayer(p, activeLayerRef.current)
         if (!existing) {
           const fresh = createLayer('keyframes')
-          createdId = fresh.id
+          wroteTo = fresh.id
           if (!isKeyframeLayer(fresh)) return p
           return { ...p, layers: [...p.layers, { ...fresh, keyframes: fn([], p) }] }
         }
+        wroteTo = existing.id
         return {
           ...p,
           layers: p.layers.map((l) =>
@@ -355,7 +361,11 @@ export function useEditor() {
           ),
         }
       }, push)
-      if (createdId) setActiveLayer(createdId)
+      // Follow the layer that was actually written to. The draw layer falls back
+      // to the topmost keyframe layer when the list selection is a pattern or an
+      // image, and without this the panel kept showing that other layer — so a
+      // keyframe you had just placed had its editor nowhere on screen.
+      if (wroteTo) setActiveLayer(wroteTo)
     },
     [mutate, setActiveLayer],
   )
@@ -464,6 +474,23 @@ export function useEditor() {
     [setLibrary, setProject, setActiveLayer],
   )
 
+  /**
+   * Selecting a keyframe also selects its layer, so the editor is somewhere the
+   * user can see. Canvas handles belong to the draw layer, which is not
+   * necessarily the one highlighted in the layer list.
+   */
+  const selectKeyframe = useCallback(
+    (id: string | null) => {
+      setSelectedId(id)
+      if (!id) return
+      const owner = projectRef.current.layers.find(
+        (l) => isKeyframeLayer(l) && l.keyframes.some((k) => k.id === id),
+      )
+      if (owner) setActiveLayer(owner.id)
+    },
+    [setActiveLayer],
+  )
+
   const selected = useMemo(
     () => drawLayer?.keyframes.find((k) => k.id === selectedId) ?? null,
     [drawLayer, selectedId],
@@ -487,7 +514,7 @@ export function useEditor() {
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,
     setTool,
-    select: setSelectedId,
+    select: selectKeyframe,
     setActiveLayer,
     patchProject,
     addLayer,
