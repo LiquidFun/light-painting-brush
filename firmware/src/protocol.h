@@ -198,5 +198,13 @@ constexpr uint32_t LS_PAYLOAD_OFFSET = LS_FLASH_BLOCK;
 // noise.
 constexpr uint32_t LS_RECORD_MAGIC = 0x3253504C;
 
+// How long the radio stays quiet once playback starts (§4.2).
+//
+// Bounded, because it must be. A looping animation never ends, so an unbounded
+// window meant that a socket lost mid-playback could never be re-established:
+// the stick played on, unreachable, until somebody pressed BOOT. No exposure
+// runs longer than this, and past it an unreachable stick is the worse failure.
+constexpr uint32_t LS_QUIESCE_MAX_MS = 60000;
+
 constexpr uint32_t LS_BUTTON_DEBOUNCE_MS = 250;
 constexpr uint32_t LS_IDENTIFY_MS = 200;

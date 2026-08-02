@@ -21,7 +21,7 @@ class BleService : public Transport {
   void begin(TransportHandler* handler) override;
 
   // BLE is driven entirely by NimBLE's own task, so there is nothing to pump.
-  void poll(bool exposing) override { (void)exposing; }
+  void poll(bool quiesce) override { (void)quiesce; }
 
   // Serialise and notify a 16-byte Status payload. Also updates the readable
   // value so a fresh connection can read state immediately.

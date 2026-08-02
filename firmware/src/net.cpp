@@ -176,13 +176,17 @@ void NetService::begin(TransportHandler* handler) {
                 LS_RELAY_PATH, LS_RELAY_TLS);
 }
 
-void NetService::poll(bool exposing) {
-  // §4.2: the radio must not disturb playback. The animation is already in RAM and
-  // needs no network to play, so during an exposure this does nothing that could
-  // block — no WiFi scan, no TCP connect, no TLS handshake. An established socket
-  // is still serviced, so `stop` still lands promptly.
-  if (exposing && !linked_) return;
-  if (!exposing) ensureWifi(wifiWasUp_);
+void NetService::poll(bool quiesce) {
+  // §4.2: the radio must not disturb an exposure, so while `quiesce` is set this
+  // does nothing that could block — no scan, no TCP connect, no TLS handshake.
+  // An established socket is still serviced, so `stop` still lands promptly.
+  //
+  // The caller bounds the window. It has to: a looping animation never ends, and
+  // an unbounded quiesce left a stick that lost its socket mid-playback unable
+  // to rebuild it, playing on unreachable with nothing for an upload to arrive
+  // over.
+  if (quiesce && !linked_) return;
+  if (!quiesce) ensureWifi(wifiWasUp_);
   ws.loop();
 }
 

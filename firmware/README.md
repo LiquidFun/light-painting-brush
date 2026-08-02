@@ -150,10 +150,16 @@ Frames are read from flash one at a time during playback. That is safe where
 streaming over the network was not: a read is well under a millisecond against a
 40 ms frame budget, and flash latency is bounded where network latency is not.
 
-**WiFi radio activity can disturb WS2812 timing.** `Transport::poll()` is told when
-the shutter could be open and does nothing that could block during an exposure — no
-scan, no TCP connect, no TLS handshake. The animation is already in RAM and needs
-no network to play. Test before trusting a shot anyway.
+**WiFi radio activity can disturb WS2812 timing.** `Transport::poll()` is told
+when the shutter could be open and does nothing that could block then — no scan,
+no TCP connect, no TLS handshake. The animation is already stored and needs no
+network to play. Test before trusting a shot anyway.
+
+That quiet window is capped at 60 s (`LS_QUIESCE_MAX_MS`), and the cap is not
+optional. A looping animation never ends, so without it a stick that lost its
+socket mid-playback could never rebuild it: it played on indefinitely,
+unreachable, with nothing for an upload to arrive over. If a shot legitimately
+runs past a minute, expect a possible glitch as the radio resumes.
 
 **No network is a supported state.** The stick keeps a loaded animation and keeps
 playing it through a dropped socket, and the BOOT button still triggers. Only a

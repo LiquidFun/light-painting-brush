@@ -47,6 +47,9 @@ volatile bool statusDue = false;
 uint32_t lastProgressNotifyBytes = 0;
 volatile uint32_t lastDataMs = 0;
 
+// When the current playback started, for bounding the radio-quiet window.
+uint32_t playStartedMs = 0;
+
 uint32_t lastButtonMs = 0;
 bool lastButtonLevel = HIGH;
 
@@ -114,6 +117,7 @@ void startPlayback() {
   Serial.printf("[play] %u frames @ %u fps, delay %u ms, loop=%d pingPong=%d\n",
                 h.frameCount, h.fps, h.startDelayMs, h.loop(), h.pingPong());
   player.play(&animation);  // restarts from frame 0 if already playing (§3.1)
+  playStartedMs = millis();
   setState(STATE_PLAYING);
 }
 
@@ -325,7 +329,14 @@ void setup() {
 void loop() {
   // Before the state machine, so a command that arrived this tick is acted on in
   // the same pass rather than one loop late.
-  transport.poll(player.exposing());
+  //
+  // The radio stays quiet during an exposure (§4.2), but only for a bounded
+  // window: a looping animation never finishes, and without the bound a socket
+  // dropped mid-playback could never be rebuilt — the stick played on forever,
+  // unreachable, and uploads had nothing to arrive over.
+  const bool quiesce =
+      player.exposing() && (millis() - playStartedMs) < LS_QUIESCE_MAX_MS;
+  transport.poll(quiesce);
 
   if (pendingValid) {
     pendingValid = false;

@@ -57,10 +57,10 @@ class Transport {
 
   // Called every loop(). Drives the socket, reconnection and WiFi state.
   //
-  // While `exposing`, do nothing that could block: the shutter is open, the
-  // animation plays from RAM and needs no network, and a WiFi scan or TLS
-  // handshake would stretch the time axis of the photograph (§4.2).
-  virtual void poll(bool exposing) = 0;
+  // While `quiesce` is set, do nothing that could block: the shutter may be
+  // open, and a WiFi scan or TLS handshake would stretch the time axis of the
+  // photograph (§4.2). The caller bounds how long that lasts — see main.cpp.
+  virtual void poll(bool quiesce) = 0;
 
   virtual void publishStatus(const StatusSnapshot& s) = 0;
 

@@ -282,9 +282,15 @@ Basic auth password live in `secrets.h`, which is **gitignored**; commit a
 Provisioning is compile-time for the alpha. A captive portal is the right answer once
 more than one person owns a stick, and is out of scope until then.
 
-The radio must not disturb playback. If WiFi activity proves to cause visible
-glitches on the strip, the fix is to quiesce the radio for the duration of the
-exposure — the animation is already in RAM and needs no network to play.
+The radio must not disturb playback, so it goes quiet while an animation plays —
+no scan, no TCP connect, no TLS handshake. The animation is already stored and
+needs no network to play.
+
+That window must be **bounded**, and 60 s is the bound. A looping animation never
+ends, so an unbounded window meant a socket lost mid-playback could never be
+rebuilt: the stick played on indefinitely, unreachable, with nothing for an
+upload to arrive over. No exposure runs longer than a minute, and past that an
+unreachable stick is the worse failure.
 
 ### 4.3 Button handling
 
@@ -694,6 +700,13 @@ Recorded here so they are decisions rather than omissions:
 - **Per-user accounts.** One shared password, one shared library.
 - **Session locks.** Users are assumed cooperative.
 - **Per-device tokens.** One password compiled into every stick.
+- **Certificate validation on the device.** The stick accepts any certificate:
+  `beginSSL` without a CA falls back to `setInsecure()`. What crosses that link
+  is the shared Basic auth password, which guards a hobby project's shared
+  library. Pinning ISRG Root X1 would also require NTP, since certificate
+  validity is time-dependent and the ESP32 has no clock — a new hard dependency,
+  and a new failure mode, in the part of the system that is already the least
+  reliable. Revisit alongside per-device tokens.
 - **Streaming playback over the network.** Flash storage (§0) removed the reason
   to want it.
 - **Multiple stored animations.** One slot for now; several, cycled from BOOT,
