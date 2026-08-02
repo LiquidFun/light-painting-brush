@@ -7,6 +7,7 @@ import { formatBytes } from '../model/project'
 import { BLEND_MODES, IMAGE_ROTATIONS } from '../model/types'
 import type {
   BlendMode,
+  Keyframe,
   ImageFit,
   ImageRotation,
   Layer,
@@ -15,7 +16,8 @@ import type {
 } from '../model/types'
 import { importImageFile } from '../render/imageCache'
 import { PatternEditor } from './PatternEditor'
-import { Button, Field, IconButton, Panel, Row, Segmented, Slider, Toggle } from './primitives'
+import { Button, Field, IconButton, Panel, Row, Segmented, Slider } from './primitives'
+import { KeyframeEditor } from './KeyframeEditor'
 
 const ADD: { kind: LayerKind; label: string }[] = [
   { kind: 'keyframes', label: 'Keyframes' },
@@ -50,6 +52,10 @@ export function LayerPanel({
   onAdd,
   onUpdate,
   onRemove,
+  selectedKeyframe,
+  onKeyframeChange,
+  onKeyframeDelete,
+  onKeyframeDuplicate,
   onMove,
 }: {
   project: Project
@@ -59,6 +65,11 @@ export function LayerPanel({
   /** `push` false coalesces a whole slider drag into one undo step. */
   onUpdate: (id: string, patch: Partial<Layer>, push?: boolean) => void
   onRemove: (id: string) => void
+  /** The keyframe editor lives here now, so a keyframe layer is one place. */
+  selectedKeyframe: Keyframe | null
+  onKeyframeChange: (patch: Partial<Keyframe>, push?: boolean) => void
+  onKeyframeDelete: () => void
+  onKeyframeDuplicate: () => void
   onMove: (id: string, delta: number) => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -90,8 +101,9 @@ export function LayerPanel({
             .map((layer, index) => ({ layer, index }))
             .reverse()
             .map(({ layer, index }) => (
-              <li key={layer.id} className="flex items-center gap-1">
+              <li key={layer.id} className="flex items-center gap-0.5">
                 <IconButton
+                  narrow
                   label={layer.hidden ? `Show ${layer.name}` : `Hide ${layer.name}`}
                   active={!layer.hidden}
                   onClick={() => onUpdate(layer.id, { hidden: !layer.hidden })}
@@ -133,6 +145,7 @@ export function LayerPanel({
                   <span className="num ml-2 text-xs text-mute">{summarise(layer)}</span>
                 </button>
                 <IconButton
+                  narrow
                   label={`Move ${layer.name} up`}
                   disabled={index === top}
                   onClick={() => onMove(layer.id, 1)}
@@ -148,6 +161,22 @@ export function LayerPanel({
                 >
                   <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
                     <path d="M6 2v8M2 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+                  </svg>
+                </IconButton>
+                <IconButton
+                  narrow
+                  label={`Delete ${layer.name}`}
+                  onClick={() => {
+                    if (window.confirm(`Delete layer "${layer.name}"?`)) onRemove(layer.id)
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+                    <path
+                      d="M2 3h8M4.5 3V2h3v1M3 3l.6 7h4.8L9 3"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                    />
                   </svg>
                 </IconButton>
               </li>
@@ -200,10 +229,26 @@ export function LayerPanel({
           </Field>
 
           {active.kind === 'keyframes' && (
-            <p className="text-xs text-mute">
-              Selected, so the canvas tools draw into this layer. Its keyframes are the only
-              ones showing handles.
-            </p>
+            <>
+              <p className="text-xs text-mute">
+                Selected, so the canvas tools draw into this layer. Its keyframes are the
+                only ones showing handles.
+              </p>
+              {selectedKeyframe ? (
+                <KeyframeEditor
+                  keyframe={selectedKeyframe}
+                  project={project}
+                  onChange={onKeyframeChange}
+                  onDelete={onKeyframeDelete}
+                  onDuplicate={onKeyframeDuplicate}
+                />
+              ) : (
+                <p className="text-sm text-mute">
+                  Nothing selected. Pick Point, Row or Column and tap the canvas, or tap an
+                  existing handle.
+                </p>
+              )}
+            </>
           )}
 
           {active.kind === 'paint' && (
@@ -287,21 +332,6 @@ export function LayerPanel({
             </>
           )}
 
-          <Toggle
-            label="Hidden"
-            hint="Keeps the layer in the project without rendering it."
-            checked={active.hidden}
-            onChange={(hidden) => onUpdate(active.id, { hidden })}
-          />
-
-          <Button
-            full
-            onClick={() => {
-              if (window.confirm(`Delete layer "${active.name}"?`)) onRemove(active.id)
-            }}
-          >
-            Delete layer
-          </Button>
         </Panel>
       )}
     </>

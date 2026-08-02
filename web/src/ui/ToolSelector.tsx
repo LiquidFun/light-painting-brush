@@ -2,10 +2,16 @@ import { MAX_BRUSH, MIN_BRUSH } from '../model/types'
 import type { Tool } from '../model/types'
 import { Segmented, Slider } from './primitives'
 
-const TOOLS: { id: Tool; label: string }[] = [
+// Two rows of three rather than one of six. At six across, a 360 px phone gives
+// each tool about 55 px and the longer labels simply cannot render. Split by what
+// they do: freehand on top, keyframe placement below.
+const PAINT_TOOLS: { id: Tool; label: string }[] = [
   { id: 'select', label: 'Select' },
   { id: 'brush', label: 'Brush' },
   { id: 'eraser', label: 'Eraser' },
+]
+
+const KEYFRAME_TOOLS: { id: Tool; label: string }[] = [
   { id: 'point', label: 'Point' },
   { id: 'row', label: 'Row' },
   { id: 'column', label: 'Column' },
@@ -35,7 +41,8 @@ export function ToolSelector({
       className="space-y-2 border-t border-line bg-panel p-2"
       style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
     >
-      <Segmented label="Tool" options={TOOLS} value={tool} onChange={onChange} />
+      <Segmented label="Tool" options={PAINT_TOOLS} value={tool} onChange={onChange} />
+      <Segmented label="Keyframe tool" options={KEYFRAME_TOOLS} value={tool} onChange={onChange} />
 
       {painting && (
         <div className="flex items-end gap-2">

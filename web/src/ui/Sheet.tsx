@@ -6,7 +6,7 @@
 
 import type { ReactNode } from 'react'
 
-export type SheetTab = 'project' | 'library' | 'layers' | 'keyframe' | 'device'
+export type SheetTab = 'project' | 'library' | 'layers' | 'device'
 
 export function Sheet({
   open,
@@ -26,7 +26,6 @@ export function Sheet({
     { id: 'project', label: 'Project' },
     { id: 'library', label: 'Library' },
     { id: 'layers', label: 'Layers' },
-    { id: 'keyframe', label: 'Keyframe' },
     { id: 'device', label: 'Device' },
   ]
 

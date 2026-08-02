@@ -17,7 +17,6 @@ import type { ContextTarget } from './ui/ContextMenu'
 import { DevicePanel } from './ui/DevicePanel'
 import { FieldCanvas } from './ui/FieldCanvas'
 import { Header } from './ui/Header'
-import { KeyframeEditor } from './ui/KeyframeEditor'
 import { LayerPanel } from './ui/LayerPanel'
 import { PowerPanel } from './ui/PowerPanel'
 import { LibraryPanel } from './ui/LibraryPanel'
@@ -191,7 +190,7 @@ export default function App() {
               playhead.pause()
               playhead.setTime(ms)
             }}
-            onOpenEditor={() => openSheet('keyframe')}
+            onOpenEditor={() => openSheet('layers')}
             onContextMenu={(id, x, y) => setMenu({ id, x, y })}
             paintLayerId={editor.paintLayer?.id ?? null}
             brushRadius={brushSize / 2}
@@ -260,24 +259,6 @@ export default function App() {
         onTab={setSheetTab}
         onClose={() => setSheetOpen(false)}
       >
-        {sheetTab === 'keyframe' &&
-          (selected ? (
-            <KeyframeEditor
-              keyframe={selected}
-              project={project}
-              onChange={(patch, push) => {
-                if (patch.color) setLastColor(patch.color)
-                editor.updateKeyframe(selected.id, patch, push)
-              }}
-              onDelete={() => editor.removeKeyframe(selected.id)}
-              onDuplicate={() => editor.duplicateKeyframe(selected.id)}
-            />
-          ) : (
-            <p className="text-sm text-mute">
-              Nothing selected. Pick the Point, Row or Column tool and tap the canvas, or
-              tap an existing handle.
-            </p>
-          ))}
 
         {sheetTab === 'layers' && (
           <LayerPanel
@@ -288,6 +269,13 @@ export default function App() {
             onUpdate={editor.updateLayer}
             onRemove={editor.removeLayer}
             onMove={editor.moveLayer}
+            selectedKeyframe={selected}
+            onKeyframeChange={(patch, push) => {
+              if (patch.color) setLastColor(patch.color)
+              if (selected) editor.updateKeyframe(selected.id, patch, push)
+            }}
+            onKeyframeDelete={() => selected && editor.removeKeyframe(selected.id)}
+            onKeyframeDuplicate={() => selected && editor.duplicateKeyframe(selected.id)}
           />
         )}
 

@@ -58,6 +58,7 @@ export function IconButton({
   disabled,
   active,
   strong,
+  narrow,
 }: {
   label: string
   children: ReactNode
@@ -66,6 +67,11 @@ export function IconButton({
   active?: boolean
   /** Heavier fill for actions worth finding at a glance. */
   strong?: boolean
+  /**
+   * 36 px wide instead of 44, for rows of several controls. Still 44 tall, so
+   * the touch target keeps its height where a thumb is least accurate (§6.12).
+   */
+  narrow?: boolean
 }) {
   return (
     <button
@@ -76,7 +82,8 @@ export function IconButton({
       disabled={disabled}
       onClick={onClick}
       className={[
-        'size-11 shrink-0 grid place-items-center rounded border select-none',
+        'h-11 shrink-0 grid place-items-center rounded border select-none',
+        narrow ? 'w-9' : 'w-11',
         // Disabled has to be obvious without colour (§6.13), so it loses the
         // fill, most of its contrast and its border weight all at once. The
         // previous styling differed from enabled only by one grey step, which
