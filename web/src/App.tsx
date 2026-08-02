@@ -91,24 +91,49 @@ export default function App() {
    * via the layer panel first is a lot of taps for the most obvious gesture
    * there is, and the file input stays for platforms without drag and drop.
    */
-  const onDrop = useCallback(
-    async (file: File) => {
+  const addImageLayer = useCallback(
+    async (file: File, fallbackName: string) => {
       setDropError(null)
       if (!file.type.startsWith('image/')) {
-        setDropError(`${file.name} is not an image.`)
+        setDropError(`${file.name || 'That file'} is not an image.`)
         return
       }
       try {
         const src = await importImageFile(file)
         const layer = editor.addLayer('image')
-        editor.updateLayer(layer.id, { src, name: file.name.replace(/\.[^.]+$/, '') })
+        // Clipboard images arrive as "image.png" or with no name at all, which
+        // makes for a uselessly generic layer.
+        const stem = file.name.replace(/\.[^.]+$/, '')
+        editor.updateLayer(layer.id, {
+          src,
+          name: stem && stem !== 'image' ? stem : fallbackName,
+        })
         openSheet('layers')
       } catch {
-        setDropError(`Could not read ${file.name}.`)
+        setDropError(`Could not read ${file.name || 'that image'}.`)
       }
     },
     [editor, openSheet],
   )
+
+  // Pasting an image adds it as a layer, the same as dropping one.
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      // Never hijack a paste aimed at a text field — the project name and the
+      // background hex both want ordinary clipboard behaviour.
+      const target = event.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+      const item = [...(event.clipboardData?.items ?? [])].find((i) =>
+        i.type.startsWith('image/'),
+      )
+      const file = item?.getAsFile()
+      if (!file) return
+      event.preventDefault()
+      void addImageLayer(file, 'Pasted image')
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [addImageLayer])
 
   const selected = editor.selected
   const keyframes = editor.drawLayer?.keyframes ?? []
@@ -135,7 +160,7 @@ export default function App() {
         e.preventDefault()
         setDropping(false)
         const file = e.dataTransfer.files[0]
-        if (file) void onDrop(file)
+        if (file) void addImageLayer(file, 'Image')
       }}
     >
       {dropping && (
