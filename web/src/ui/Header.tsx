@@ -16,6 +16,7 @@ export function Header({
   onOpenDevice,
   onUpload,
   onPlay,
+  onStop,
 }: {
   project: Project
   transport: Transport
@@ -28,6 +29,7 @@ export function Header({
   onOpenDevice: () => void
   onUpload: () => void
   onPlay: () => void
+  onStop: () => void
 }) {
   const target = transport.selected
   const online = target?.online === true
@@ -36,7 +38,11 @@ export function Header({
   const overBudget = ceiling !== null && bytes > ceiling
   // The two things you do between every shot, without opening the sheet.
   const canUpload = online && !transport.uploading && !overBudget
-  const canPlay = online && target.state !== DeviceState.IDLE
+  const playing = target?.state === DeviceState.PLAYING
+  // Only READY and PLAYING can be triggered. IDLE has nothing loaded and
+  // RECEIVING has only part of it, and the stick rejects both.
+  const canPlay =
+    online && (target.state === DeviceState.READY || playing)
 
   return (
     <header
@@ -87,10 +93,25 @@ export function Header({
           <path d="M2.5 10.5v3h11v-3" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       </IconButton>
-      <IconButton strong label="Play on the stick" disabled={!canPlay} onClick={onPlay}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-          <path d="M4 2.5l9 5.5-9 5.5V2.5z" fill="currentColor" />
-        </svg>
+      {/* Follows the stick rather than the last thing this browser asked for, so
+          it is right even when somebody else started the animation (§3.7).
+          Stop, not pause: the protocol has no resume, and playing again starts
+          from frame 0. */}
+      <IconButton
+        strong
+        label={playing ? 'Stop the stick' : 'Play on the stick'}
+        disabled={!canPlay}
+        onClick={playing ? onStop : onPlay}
+      >
+        {playing ? (
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+            <rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="currentColor" />
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+            <path d="M4 2.5l9 5.5-9 5.5V2.5z" fill="currentColor" />
+          </svg>
+        )}
       </IconButton>
 
       <button

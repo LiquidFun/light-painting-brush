@@ -159,6 +159,7 @@ export default function App() {
           onOpenDevice={() => openSheet('device')}
           onUpload={() => void upload()}
           onPlay={transport.play}
+          onStop={transport.stop}
         />
 
         <div className="flex min-h-0 flex-1">
