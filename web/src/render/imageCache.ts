@@ -11,8 +11,15 @@ import type { ImageFit, ImageRotation } from '../model/types'
 export type ImageSample = {
   width: number
   height: number
-  /** width * height * 4, gamma-encoded sRGB + alpha in 0..1, row-major. */
-  data: Float32Array
+  /**
+   * width * height * 4, gamma-encoded sRGB + alpha, row-major, 0-255.
+   *
+   * Bytes rather than floats because the source is getImageData, which is 8-bit:
+   * widening to Float32 stored quantised values in four times the space and
+   * bought no precision. The sampler scales to 0..1, which is cheaper than the
+   * cache misses the extra 12 bytes per pixel caused.
+   */
+  data: Uint8ClampedArray
 }
 
 /**
@@ -244,14 +251,7 @@ async function resample(
 
   const ctx = canvas2d(width, height)
   ctx.drawImage(source, sx, sy, sw, sh, r.dx, r.dy, r.dw, r.dh)
-  const px = ctx.getImageData(0, 0, width, height).data
-
-  const data = new Float32Array(width * height * 4)
-  for (let i = 0; i < data.length; i += 4) {
-    data[i] = px[i] / 255
-    data[i + 1] = px[i + 1] / 255
-    data[i + 2] = px[i + 2] / 255
-    data[i + 3] = px[i + 3] / 255
-  }
+  // Taken as-is: no conversion pass and no second allocation.
+  const data = ctx.getImageData(0, 0, width, height).data
   return { width, height, data }
 }

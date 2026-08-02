@@ -164,14 +164,16 @@ function createImageSampler(layer: ImageLayer, width: number, height: number): S
   const { data } = sample
   const xMax = width - 1
   const yMax = height - 1
+  // Samples are stored as bytes; the field works in 0..1.
+  const S = 1 / 255
   return (u, v, out) => {
     const x = Math.round(clamp01(u) * xMax)
     const y = Math.round(clamp01(v) * yMax)
     const i = (y * width + x) * 4
-    out[0] = data[i]
-    out[1] = data[i + 1]
-    out[2] = data[i + 2]
-    out[3] = data[i + 3]
+    out[0] = data[i] * S
+    out[1] = data[i + 1] * S
+    out[2] = data[i + 2] * S
+    out[3] = data[i + 3] * S
   }
 }
 
