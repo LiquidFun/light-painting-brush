@@ -405,6 +405,58 @@ ok('period = full strip does not repeat',
      PATH_KINDS.every(({ id }) => usedParams(id).length > 0))
 }
 
+
+// --- start angle, mirror and spiral ---------------------------------------
+{
+  const pose2: Pose = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 1, dz: 0 }
+  const at2 = (p: PathParams, t: number) => { poseAt(p, t, pose2); return { ...pose2 } }
+
+  for (const { id } of PATH_KINDS) {
+    const p = { ...DEFAULT_PATH, kind: id, tilt: 30, startAngle: 140, mirror: true }
+    ok(`${id}: still a unit vector with angle and mirror`,
+       [0, 0.3, 1].every((t) => {
+         const q = at2(p, t)
+         return Math.abs(Math.hypot(q.dx, q.dy, q.dz) - 1) < 1e-9
+       }))
+  }
+
+  // A start angle on a spin is a phase offset: a quarter turn in should match
+  // starting 90 degrees round.
+  const spin = { ...DEFAULT_PATH, kind: 'circle' as const, tilt: 45, turns: 1 }
+  const quarterIn = at2(spin, 0.25)
+  const offset = at2({ ...spin, startAngle: 90 }, 0)
+  ok('start angle is a phase offset on a spin',
+     near(quarterIn.dx, offset.dx, 1e-9) && near(quarterIn.dz, offset.dz, 1e-9))
+
+  // Mirroring must reverse handedness, not just move the thing.
+  const plain = at2(spin, 0.1)
+  const mirrored = at2({ ...spin, mirror: true }, 0.1)
+  ok('mirror reflects through x', near(mirrored.dx, -plain.dx, 1e-9))
+  ok('mirror leaves the other axes alone',
+     near(mirrored.dy, plain.dy, 1e-9) && near(mirrored.dz, plain.dz, 1e-9))
+  ok('mirroring twice is the identity',
+     near(at2({ ...spin, mirror: false }, 0.4).dx, plain.dx === 0 ? 0 : at2(spin, 0.4).dx, 1e-9))
+
+  // Spiral pivots at the middle: the stick's centre stays on the travel axis,
+  // which is exactly what distinguishes it from corkscrew.
+  const spiral = { ...DEFAULT_PATH, kind: 'spiral' as const, turns: 2, distance: 4 }
+  for (const t of [0, 0.17, 0.5, 0.83, 1]) {
+    const q = at2(spiral, t)
+    const cy = q.oy + q.dy * 0.5
+    const cz = q.oz + q.dz * 0.5
+    ok(`spiral t=${t}: centre stays on the axis`,
+       near(cy, 0.5, 1e-9) && near(cz, 0, 1e-9), `${cy.toFixed(3)} ${cz.toFixed(3)}`)
+  }
+  ok('spiral advances end to end',
+     near(at2(spiral, 0).ox + at2(spiral, 0).dx * 0.5, -2, 1e-9) &&
+     near(at2(spiral, 1).ox + at2(spiral, 1).dx * 0.5, 2, 1e-9))
+
+  // Corkscrew keeps an *end* on the axis instead, so the two really differ.
+  const screw = { ...DEFAULT_PATH, kind: 'corkscrew' as const, turns: 2, distance: 4, tilt: 40 }
+  ok('corkscrew keeps its base on the axis',
+     [0, 0.3, 0.6].every((t) => near(at2(screw, t).oy, 0, 1e-9)))
+}
+
 console.log(out.join('\n'))
 const passed = out.filter((r) => r.startsWith('PASS')).length
 console.log(`\n${passed}/${out.length} passed`)

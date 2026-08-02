@@ -9,12 +9,20 @@
 // Pure geometry, no three.js: a path returns where the stick is and which way it
 // points at a given moment, and the viewer turns that into points.
 
-export type PathKind = 'sweep' | 'circle' | 'corkscrew' | 'pendulum' | 'wander'
+export type PathKind = 'sweep' | 'circle' | 'corkscrew' | 'spiral' | 'pendulum' | 'wander'
+
+/** The strip is 1 m. Every distance here is in metres. */
+export const STICK_LENGTH = 1
 
 export const PATH_KINDS: { id: PathKind; label: string; note: string }[] = [
   { id: 'sweep', label: 'Sweep', note: 'Straight and level — what the 2D canvas assumes' },
   { id: 'circle', label: 'Spin', note: 'Pivot on one end, tracing a disc' },
-  { id: 'corkscrew', label: 'Corkscrew', note: 'Spin while advancing — a helix' },
+  { id: 'corkscrew', label: 'Corkscrew', note: 'Spin on the base while advancing — a cone helix' },
+  {
+    id: 'spiral',
+    label: 'Spiral',
+    note: 'Held at the middle and spun like a propeller while walking forward',
+  },
   { id: 'pendulum', label: 'Pendulum', note: 'Swing back and forth about the base' },
   { id: 'wander', label: 'Wander', note: 'Hand-held drift, for how it really goes' },
 ]
@@ -32,6 +40,13 @@ export type PathParams = {
   /** Metres of hand wobble. */
   wobble: number
   seed: number
+  /**
+   * Where the motion starts. A phase offset for anything that rotates, and the
+   * heading for anything that only travels.
+   */
+  startAngle: number
+  /** Reflect the whole path, reversing travel and handedness. */
+  mirror: boolean
 }
 
 export const DEFAULT_PATH: PathParams = {
@@ -42,6 +57,8 @@ export const DEFAULT_PATH: PathParams = {
   tilt: 0,
   wobble: 0.15,
   seed: 1,
+  startAngle: 0,
+  mirror: false,
 }
 
 /** Where the stick is at time `t` (0..1) and which way it points. */
@@ -78,6 +95,7 @@ const TAU = Math.PI * 2
  */
 export function poseAt(p: PathParams, t: number, out: Pose): void {
   const tilt = (p.tilt * Math.PI) / 180
+  const phase = (p.startAngle * Math.PI) / 180
   // Rest orientation: up, leant back by `tilt`.
   let dx = 0
   let dy = Math.cos(tilt)
@@ -94,7 +112,7 @@ export function poseAt(p: PathParams, t: number, out: Pose): void {
     case 'circle': {
       // Pivot about the base. The stick leans out by `tilt`, so a tilt of zero
       // traces a line and anything else traces a cone.
-      const a = t * TAU * p.turns
+      const a = t * TAU * p.turns + phase
       const r = Math.sin(tilt)
       dx = Math.cos(a) * r
       dz = Math.sin(a) * r
@@ -103,7 +121,7 @@ export function poseAt(p: PathParams, t: number, out: Pose): void {
     }
 
     case 'corkscrew': {
-      const a = t * TAU * p.turns
+      const a = t * TAU * p.turns + phase
       const r = Math.sin(tilt)
       dx = Math.cos(a) * r
       dz = Math.sin(a) * r
@@ -113,11 +131,27 @@ export function poseAt(p: PathParams, t: number, out: Pose): void {
       break
     }
 
+    case 'spiral': {
+      // Held at the middle and spun like a propeller about the direction of
+      // travel, so both ends trace helices half a turn apart. Corkscrew pivots
+      // on the base and keeps one end on the axis; this keeps the centre on it.
+      const a = t * TAU * p.turns + phase
+      const cx = (t - 0.5) * p.distance
+      dx = 0
+      dy = Math.cos(a)
+      dz = Math.sin(a)
+      // The path gives LED 0, and the pivot is half a stick along from it.
+      ox = cx - dx * STICK_LENGTH * 0.5
+      oy = STICK_LENGTH * 0.5 - dy * STICK_LENGTH * 0.5
+      oz = -dz * STICK_LENGTH * 0.5
+      break
+    }
+
     case 'pendulum': {
       // Cosine rather than a sawtooth: a real swing is slowest at the ends,
       // which is where a long exposure piles up the most light.
       const half = (p.swing * Math.PI) / 360
-      const a = Math.cos(t * TAU * Math.max(p.turns, 0.25)) * half
+      const a = Math.cos(t * TAU * Math.max(p.turns, 0.25) + phase) * half
       dx = Math.sin(a)
       dy = Math.cos(a)
       dz = 0
@@ -139,6 +173,29 @@ export function poseAt(p: PathParams, t: number, out: Pose): void {
     }
   }
 
+  // Modes that only travel have no rotation to offset, so the start angle turns
+  // their heading instead.
+  if (p.kind === 'sweep' || p.kind === 'wander') {
+    const c = Math.cos(phase)
+    const s = Math.sin(phase)
+    const rx = ox * c - oz * s
+    const rz = ox * s + oz * c
+    const rdx = dx * c - dz * s
+    const rdz = dx * s + dz * c
+    ox = rx
+    oz = rz
+    dx = rdx
+    dz = rdz
+  }
+
+  // A reflection through the YZ plane: travel reverses and every rotation
+  // changes hand, which is what makes it read as a mirror image rather than as
+  // the same path seen from behind.
+  if (p.mirror) {
+    ox = -ox
+    dx = -dx
+  }
+
   const len = Math.hypot(dx, dy, dz) || 1
   out.ox = ox
   out.oy = oy
@@ -150,6 +207,7 @@ export function poseAt(p: PathParams, t: number, out: Pose): void {
 
 /** Which parameters a mode actually uses, so the panel can hide the rest. */
 export function usedParams(kind: PathKind): (keyof PathParams)[] {
+  // startAngle and mirror apply to every mode and are listed separately.
   switch (kind) {
     case 'sweep':
       return ['distance', 'tilt']
@@ -157,6 +215,8 @@ export function usedParams(kind: PathKind): (keyof PathParams)[] {
       return ['turns', 'tilt']
     case 'corkscrew':
       return ['turns', 'tilt', 'distance']
+    case 'spiral':
+      return ['turns', 'distance']
     case 'pendulum':
       return ['swing', 'turns']
     case 'wander':

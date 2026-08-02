@@ -13,12 +13,9 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 import type { Field } from '../render/field'
-import { DEFAULT_PATH, PATH_KINDS, poseAt, usedParams } from '../render/paths'
+import { DEFAULT_PATH, PATH_KINDS, STICK_LENGTH, poseAt, usedParams } from '../render/paths'
 import type { PathKind, PathParams, Pose } from '../render/paths'
-import { Field as FormField, Slider } from './primitives'
-
-/** The strip is 1 m. Everything else is in metres too. */
-const STICK_LENGTH = 1
+import { Button, Field as FormField, Row, Slider } from './primitives'
 
 /**
  * Points beyond this are dropped by taking every Nth frame. A minute at 60 fps is
@@ -241,6 +238,26 @@ export function Preview3D({ field }: { field: Field }) {
             onChange={(seed) => set({ seed })}
           />
         )}
+
+        <Slider
+          label="Start angle"
+          value={path.startAngle}
+          min={0}
+          max={359}
+          display={`${path.startAngle}°`}
+          hint={
+            path.kind === 'sweep' || path.kind === 'wander'
+              ? 'Which way the walk heads.'
+              : 'Where in the rotation the animation begins.'
+          }
+          onChange={(startAngle) => set({ startAngle })}
+        />
+
+        <Row>
+          <Button active={path.mirror} onClick={() => set({ mirror: !path.mirror })}>
+            {path.mirror ? 'Mirrored' : 'Mirror'}
+          </Button>
+        </Row>
 
         <Slider
           label="Exposure"
