@@ -31,8 +31,13 @@ char deviceIdBuf[32] = "lightstick-000000000000";
 /** How long to sit in wifiMulti.run() before giving up on this pass. */
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 6000;
 constexpr uint32_t WIFI_RETRY_MS = 5000;
+/** Direct re-joins to try before falling back to a full scan. */
+constexpr uint32_t DIRECT_REJOIN_TRIES = 5;
 
 uint32_t lastWifiAttemptMs = 0;
+/** Index into NETWORKS of the AP we were last associated with, or -1. */
+int lastNetwork = -1;
+uint32_t directTries = 0;
 uint32_t failedJoins = 0;
 StatusSnapshot lastStatus;
 
@@ -113,12 +118,25 @@ void logVisibleNetworks() {
   WiFi.scanDelete();
 }
 
-/** Ensures a WiFi association. Blocks while scanning, so never call mid-exposure. */
-void ensureWifi(bool& wasUp) {
+/**
+ * Ensures a WiFi association.
+ *
+ * Re-joining a network we have already been on is non-blocking: WiFi.begin()
+ * returns immediately and a later poll notices the status. Only finding a
+ * network from scratch needs wifiMulti.run(), which scans and blocks for
+ * seconds — long enough to freeze an animation on one frame, so it is never
+ * done while frames are going out.
+ */
+void ensureWifi(bool& wasUp, bool playing) {
   if (WiFi.status() == WL_CONNECTED) {
     if (!wasUp) {
       wasUp = true;
       failedJoins = 0;
+      directTries = 0;
+      // Remember which one, so the next drop can re-join it without a scan.
+      for (size_t i = 0; i < sizeof(NETWORKS) / sizeof(NETWORKS[0]); i++) {
+        if (WiFi.SSID() == NETWORKS[i].ssid) lastNetwork = (int)i;
+      }
       Serial.printf("[wifi] %s, ip %s, rssi %d\n", WiFi.SSID().c_str(),
                     WiFi.localIP().toString().c_str(), WiFi.RSSI());
     }
@@ -128,6 +146,15 @@ void ensureWifi(bool& wasUp) {
   uint32_t now = millis();
   if (now - lastWifiAttemptMs < WIFI_RETRY_MS) return;
   lastWifiAttemptMs = now;
+
+  if (lastNetwork >= 0 && directTries < DIRECT_REJOIN_TRIES) {
+    directTries++;
+    WiFi.begin(NETWORKS[lastNetwork].ssid, NETWORKS[lastNetwork].password);
+    return;
+  }
+
+  // From here on it blocks, so not while the strip is live.
+  if (playing) return;
 
   wl_status_t status = (wl_status_t)wifiMulti.run(WIFI_CONNECT_TIMEOUT_MS);
   if (status == WL_CONNECTED) return;
@@ -176,7 +203,7 @@ void NetService::begin(TransportHandler* handler) {
                 LS_RELAY_PATH, LS_RELAY_TLS);
 }
 
-void NetService::poll(bool quiesce) {
+void NetService::poll(bool quiesce, bool playing) {
   // §4.2: the radio must not disturb an exposure, so while `quiesce` is set this
   // does nothing that could block — no scan, no TCP connect, no TLS handshake.
   // An established socket is still serviced, so `stop` still lands promptly.
@@ -186,7 +213,7 @@ void NetService::poll(bool quiesce) {
   // to rebuild it, playing on unreachable with nothing for an upload to arrive
   // over.
   if (quiesce && !linked_) return;
-  if (!quiesce) ensureWifi(wifiWasUp_);
+  if (!quiesce) ensureWifi(wifiWasUp_, playing);
   ws.loop();
 }
 

@@ -158,8 +158,13 @@ network to play. Test before trusting a shot anyway.
 That quiet window is capped at 60 s (`LS_QUIESCE_MAX_MS`), and the cap is not
 optional. A looping animation never ends, so without it a stick that lost its
 socket mid-playback could never rebuild it: it played on indefinitely,
-unreachable, with nothing for an upload to arrive over. If a shot legitimately
-runs past a minute, expect a possible glitch as the radio resumes.
+unreachable, with nothing for an upload to arrive over.
+
+Past the cap, reconnection still must not stall the strip. Re-joining a network
+the stick has already been on is non-blocking — `WiFi.begin()` returns at once
+and a later poll notices. Only finding a network from scratch needs a scan, which
+blocks for seconds, and that is never done while frames are going out. Losing the
+socket does **not** stop playback, by design (§3.2).
 
 **No network is a supported state.** The stick keeps a loaded animation and keeps
 playing it through a dropped socket, and the BOOT button still triggers. Only a

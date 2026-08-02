@@ -336,7 +336,7 @@ void loop() {
   // unreachable, and uploads had nothing to arrive over.
   const bool quiesce =
       player.exposing() && (millis() - playStartedMs) < LS_QUIESCE_MAX_MS;
-  transport.poll(quiesce);
+  transport.poll(quiesce, player.exposing());
 
   if (pendingValid) {
     pendingValid = false;

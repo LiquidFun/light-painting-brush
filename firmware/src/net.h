@@ -17,7 +17,7 @@
 class NetService : public Transport {
  public:
   void begin(TransportHandler* handler) override;
-  void poll(bool quiesce) override;
+  void poll(bool quiesce, bool playing) override;
   void publishStatus(const StatusSnapshot& s) override;
   LinkStage linkStage() const override;
   uint16_t chunkSize() const override { return (uint16_t)LS_RELAY_CHUNK; }
