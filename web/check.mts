@@ -476,7 +476,8 @@ ok('period = full strip does not repeat',
       const px = (u - c.pivot) * Math.cos(phi)
       const py = (u - c.pivot) * Math.sin(phi)
       // Half a turn of a unit stick pivoted at the base: x in [-1,1], y in [0,1].
-      worst = Math.max(worst, Math.abs(out[0] - (px + 1) / 2), Math.abs(out[1] - py))
+      // The design is an image, so its row 0 is the top and Y is inverted.
+      worst = Math.max(worst, Math.abs(out[0] - (px + 1) / 2), Math.abs(out[1] - (1 - py)))
     }
   }
   ok('the warp inverts the sweep exactly', worst < 1e-12, worst.toExponential(1))
@@ -502,10 +503,20 @@ ok('period = full strip does not repeat',
 
   // Landmarks a person can check against a drawing.
   const half = createSweepWarp({ enabled: true, startAngle: 0, sweep: 180, pivot: 0 })
+  // Pointing straight up mid-sweep must show the *top* of the drawing, not the
+  // bottom. Getting this backwards renders every corrected project upside down.
   half(1, 0.5, out)
-  ok('tip at mid-sweep is top centre', near(out[0], 0.5, 1e-12) && near(out[1], 1, 1e-12))
+  ok('tip pointing up shows the top of the design',
+     near(out[0], 0.5, 1e-12) && near(out[1], 0, 1e-12), out.join(', '))
   half(1, 0, out)
-  ok('tip at the start is hard right', near(out[0], 1, 1e-12) && near(out[1], 0, 1e-12))
+  ok('tip pointing right shows the right edge, at the bottom',
+     near(out[0], 1, 1e-12) && near(out[1], 1, 1e-12), out.join(', '))
+  // Base and tip at the same instant must differ only in radius, not in row.
+  half(0.2, 0.5, out)
+  const near1 = [...out]
+  half(0.9, 0.5, out)
+  ok('further along the stick is further up the design at mid-sweep',
+     out[1] < near1[1], `${out[1]} < ${near1[1]}`)
 
   // Reversing the sign must mirror the result, since it is the same arc travelled
   // the other way.

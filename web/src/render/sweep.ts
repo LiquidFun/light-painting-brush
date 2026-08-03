@@ -80,6 +80,9 @@ export function createSweepWarp(c: SweepCorrection): Warp {
     const phi = start + span * v
     const r = u - pivot
     out[0] = (r * Math.cos(phi) - minX) * sx
-    out[1] = (r * Math.sin(phi) - minY) * sy
+    // Y is inverted on purpose. The design is an image, so its row 0 is the top;
+    // the world has +Y upward. Mapping (Py - minY) straight through put the
+    // design's top row at the bottom of the shot and drew everything upside down.
+    out[1] = (maxY - r * Math.sin(phi)) * sy
   }
 }
