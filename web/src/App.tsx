@@ -202,7 +202,7 @@ export default function App() {
               </div>
             }
           >
-            <Preview3D field={field} />
+            <Preview3D field={field} correction={project.sweep} />
           </Suspense>
         ) : (
           <>

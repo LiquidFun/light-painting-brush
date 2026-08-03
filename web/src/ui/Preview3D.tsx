@@ -15,6 +15,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Field } from '../render/field'
 import { DEFAULT_PATH, PATH_KINDS, STICK_LENGTH, poseAt, usedParams } from '../render/paths'
 import type { PathKind, PathParams, Pose } from '../render/paths'
+import type { SweepCorrection } from '../render/sweep'
 import { Button, Field as FormField, Row, Slider } from './primitives'
 
 /**
@@ -24,9 +25,26 @@ import { Button, Field as FormField, Row, Slider } from './primitives'
  */
 const MAX_POINTS = 250_000
 
-export function Preview3D({ field }: { field: Field }) {
+export function Preview3D({
+  field,
+  correction,
+}: {
+  field: Field
+  /** The project's sweep correction, if any. Drives Rotate when it is on. */
+  correction: SweepCorrection
+}) {
   const mountRef = useRef<HTMLDivElement>(null)
-  const [path, setPath] = useState<PathParams>(DEFAULT_PATH)
+  const [path, setPath] = useState<PathParams>(() =>
+    correction.enabled
+      ? {
+          ...DEFAULT_PATH,
+          kind: 'rotate',
+          arc: correction.sweep,
+          pivot: correction.pivot,
+          startAngle: correction.startAngle,
+        }
+      : DEFAULT_PATH,
+  )
   const [exposure, setExposure] = useState(1)
 
   // The scene outlives parameter changes; only the geometry is rebuilt.
@@ -153,6 +171,21 @@ export function Preview3D({ field }: { field: Field }) {
     if (ctx) ctx.material.opacity = exposure
   }, [exposure])
 
+  // One source of truth. Keeping an editable copy here would mean two numbers
+  // that have to agree for the preview to mean anything, and no way to tell when
+  // they had drifted.
+  useEffect(() => {
+    if (!correction.enabled) return
+    setPath((p) => ({
+      ...p,
+      kind: 'rotate',
+      arc: correction.sweep,
+      pivot: correction.pivot,
+      startAngle: correction.startAngle,
+    }))
+  }, [correction.enabled, correction.sweep, correction.pivot, correction.startAngle])
+
+  const locked = correction.enabled && path.kind === 'rotate'
   const used = usedParams(path.kind)
   const set = (patch: Partial<PathParams>) => setPath((p) => ({ ...p, ...patch }))
 
@@ -194,7 +227,8 @@ export function Preview3D({ field }: { field: Field }) {
             min={-720}
             max={720}
             display={`${path.arc}°`}
-            hint="Match this to the project's sweep correction to see it come out straight."
+            disabled={locked}
+            hint={locked ? undefined : 'How far the stick turns. Negative turns the other way.'}
             onChange={(arc) => set({ arc })}
           />
         )}
@@ -205,7 +239,8 @@ export function Preview3D({ field }: { field: Field }) {
             min={0}
             max={100}
             display={path.pivot === 0 ? 'at the base' : `${Math.round(path.pivot * 100)}% along`}
-            hint="Where your hand is on the stick."
+            disabled={locked}
+            hint={locked ? undefined : 'Where your hand is on the stick.'}
             onChange={(v) => set({ pivot: v / 100 })}
           />
         )}
@@ -267,13 +302,24 @@ export function Preview3D({ field }: { field: Field }) {
           min={0}
           max={359}
           display={`${path.startAngle}°`}
+          disabled={locked}
           hint={
-            path.kind === 'sweep' || path.kind === 'wander'
-              ? 'Which way the walk heads.'
-              : 'Where in the rotation the animation begins.'
+            locked
+              ? undefined
+              : path.kind === 'sweep' || path.kind === 'wander'
+                ? 'Which way the walk heads.'
+                : 'Where in the rotation the animation begins.'
           }
           onChange={(startAngle) => set({ startAngle })}
         />
+
+        {locked && (
+          <p className="text-xs text-mute">
+            Arc, pivot and start angle come from the project's sweep correction, so the
+            two cannot disagree. Change them in the Project tab, or turn the correction
+            off to explore a different motion here.
+          </p>
+        )}
 
         <Row>
           <Button active={path.mirror} onClick={() => set({ mirror: !path.mirror })}>
