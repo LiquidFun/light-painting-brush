@@ -9,14 +9,30 @@
 // Pure geometry, no three.js: a path returns where the stick is and which way it
 // points at a given moment, and the viewer turns that into points.
 
-export type PathKind = 'sweep' | 'circle' | 'corkscrew' | 'spiral' | 'pendulum' | 'wander'
+export type PathKind =
+  | 'rotate'
+  | 'sweep'
+  | 'circle'
+  | 'corkscrew'
+  | 'spiral'
+  | 'pendulum'
+  | 'wander'
 
 /** The strip is 1 m. Every distance here is in metres. */
 export const STICK_LENGTH = 1
 
 export const PATH_KINDS: { id: PathKind; label: string; note: string }[] = [
+  {
+    id: 'rotate',
+    label: 'Rotate',
+    note: 'Turned in one plane about a pivot, like a clock hand — the motion the project sweep correction assumes',
+  },
   { id: 'sweep', label: 'Sweep', note: 'Straight and level — what the 2D canvas assumes' },
-  { id: 'circle', label: 'Spin', note: 'Pivot on one end, tracing a disc' },
+  {
+    id: 'circle',
+    label: 'Spin',
+    note: 'Turned about the vertical, tracing a cone. Needs a tilt or it is just a stick',
+  },
   { id: 'corkscrew', label: 'Corkscrew', note: 'Spin on the base while advancing — a cone helix' },
   {
     id: 'spiral',
@@ -37,6 +53,10 @@ export type PathParams = {
   swing: number
   /** Tilt of the stick away from vertical, in degrees. */
   tilt: number
+  /** Signed degrees turned, for Rotate. The sign is the direction. */
+  arc: number
+  /** Fraction along the strip that sits at the centre of rotation, for Rotate. */
+  pivot: number
   /** Metres of hand wobble. */
   wobble: number
   seed: number
@@ -50,11 +70,16 @@ export type PathParams = {
 }
 
 export const DEFAULT_PATH: PathParams = {
-  kind: 'circle',
+  // Rotate rather than Spin: it is the motion people actually use, and it shows
+  // something immediately. Spin at the old default tilt of zero turns the stick
+  // about its own axis and draws a single stick, which reads as broken.
+  kind: 'rotate',
   distance: 2,
   turns: 1,
   swing: 120,
-  tilt: 0,
+  arc: 180,
+  pivot: 0,
+  tilt: 35,
   wobble: 0.15,
   seed: 1,
   startAngle: 0,
@@ -105,6 +130,21 @@ export function poseAt(p: PathParams, t: number, out: Pose): void {
   let oz = 0
 
   switch (p.kind) {
+    case 'rotate': {
+      // One plane, one pivot. The pivot rides at its own height along the stick,
+      // so an upright stick always spans the floor to its full length whatever
+      // the hand position.
+      const a = phase + t * p.arc * (Math.PI / 180)
+      dx = Math.cos(a)
+      dy = Math.sin(a)
+      dz = 0
+      const hold = p.pivot * STICK_LENGTH
+      ox = -dx * hold
+      oy = hold - dy * hold
+      oz = 0
+      break
+    }
+
     case 'sweep':
       ox = (t - 0.5) * p.distance
       break
@@ -209,6 +249,8 @@ export function poseAt(p: PathParams, t: number, out: Pose): void {
 export function usedParams(kind: PathKind): (keyof PathParams)[] {
   // startAngle and mirror apply to every mode and are listed separately.
   switch (kind) {
+    case 'rotate':
+      return ['arc', 'pivot']
     case 'sweep':
       return ['distance', 'tilt']
     case 'circle':

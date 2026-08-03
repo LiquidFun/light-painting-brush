@@ -531,6 +531,47 @@ ok('period = full strip does not repeat',
      evaluateField(painted).data.every((v, i) => near(v, evaluateField(base).data[i])))
 }
 
+
+// --- the rotate path matches the sweep correction -------------------------
+{
+  // The 3D preview only tells you anything about the correction if the two use
+  // the same geometry. Rotate must place LEDs exactly where createSweepWarp
+  // assumes they go.
+  const cfg = { enabled: true, startAngle: 25, sweep: -140, pivot: 0.3 }
+  const p: PathParams = {
+    ...DEFAULT_PATH, kind: 'rotate', arc: cfg.sweep, pivot: cfg.pivot,
+    startAngle: cfg.startAngle, mirror: false,
+  }
+  const pose3: Pose = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 1, dz: 0 }
+  const DEG = Math.PI / 180
+
+  let worst = 0
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+    for (const u of [0, 0.3, 0.7, 1]) {
+      poseAt(p, t, pose3)
+      // Where the preview puts this LED, relative to the pivot.
+      const px = pose3.ox + pose3.dx * u - 0
+      const py = pose3.oy + pose3.dy * u - cfg.pivot
+      // Where the correction's model says it goes.
+      const phi = (cfg.startAngle + cfg.sweep * t) * DEG
+      const r = u - cfg.pivot
+      worst = Math.max(worst, Math.abs(px - r * Math.cos(phi)), Math.abs(py - r * Math.sin(phi)))
+    }
+  }
+  ok('rotate agrees with the sweep correction', worst < 1e-12, worst.toExponential(1))
+  ok('rotate stays in one plane',
+     [0, 0.4, 1].every((t) => { poseAt(p, t, pose3); return Math.abs(pose3.dz) < 1e-12 }))
+
+  // The default must show something. Spin at zero tilt does not.
+  const dflt = { ...DEFAULT_PATH }
+  poseAt(dflt, 0, pose3)
+  const a = { ...pose3 }
+  poseAt(dflt, 0.5, pose3)
+  ok('the default path actually moves',
+     Math.hypot(pose3.dx - a.dx, pose3.dy - a.dy, pose3.dz - a.dz) > 0.5)
+  ok('spin no longer defaults to a degenerate tilt', DEFAULT_PATH.tilt > 0)
+}
+
 console.log(out.join('\n'))
 const passed = out.filter((r) => r.startsWith('PASS')).length
 console.log(`\n${passed}/${out.length} passed`)

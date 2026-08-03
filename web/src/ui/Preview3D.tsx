@@ -187,6 +187,28 @@ export function Preview3D({ field }: { field: Field }) {
             onChange={(v) => set({ turns: v / 4 })}
           />
         )}
+        {used.includes('arc') && (
+          <Slider
+            label="Arc"
+            value={path.arc}
+            min={-720}
+            max={720}
+            display={`${path.arc}°`}
+            hint="Match this to the project's sweep correction to see it come out straight."
+            onChange={(arc) => set({ arc })}
+          />
+        )}
+        {used.includes('pivot') && (
+          <Slider
+            label="Pivot"
+            value={Math.round(path.pivot * 100)}
+            min={0}
+            max={100}
+            display={path.pivot === 0 ? 'at the base' : `${Math.round(path.pivot * 100)}% along`}
+            hint="Where your hand is on the stick."
+            onChange={(v) => set({ pivot: v / 100 })}
+          />
+        )}
         {used.includes('swing') && (
           <Slider
             label="Swing"
