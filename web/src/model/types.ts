@@ -197,6 +197,8 @@ export type LayerKind = Layer['kind']
  */
 export const BRIGHTNESS_POINTS = 33
 
+import type { SweepCorrection } from '../render/sweep'
+
 export type Project = {
   id: string
   name: string
@@ -217,6 +219,11 @@ export type Project = {
    */
   brightnessX: number[]
   brightnessY: number[]
+  /**
+   * Pre-distortion for a rotated sweep. Off by default: the canvas assumes the
+   * stick travels sideways, which is the right assumption most of the time.
+   */
+  sweep: SweepCorrection
   playback: Playback
   /**
    * Master brightness 0-255, sent to the stick. Per project rather than per

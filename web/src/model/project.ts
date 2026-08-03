@@ -1,4 +1,5 @@
 import { clamp } from './color'
+import { DEFAULT_SWEEP } from '../render/sweep'
 import type {
   Keyframe,
   KeyframeKind,
@@ -59,6 +60,7 @@ export function createProject(name = 'Untitled'): Project {
     layers: [],
     brightnessX: flatCurve(),
     brightnessY: flatCurve(),
+    sweep: { ...DEFAULT_SWEEP },
     // Loop and ping-pong on by default: a sweep usually wants the pattern to
     // keep coming, and stopping is the BOOT button. autoPlay because uploading
     // and then reaching for Play is two steps for one intention.

@@ -29,6 +29,7 @@ import type {
 import { getImage } from './imageCache'
 import { getPaintSurface } from './paintCache'
 import { createSampler } from './patterns'
+import { createSweepWarp } from './sweep'
 import type { RGBA, Sampler } from './patterns'
 
 /**
@@ -270,6 +271,14 @@ export function createEvaluator(
 
   const rgba: RGBA = [0, 0, 0, 0]
 
+  // Applied to the coordinates *before* the layers are sampled, so everything is
+  // authored undistorted and the warp is purely a matter of where each LED
+  // physically lands. The brightness curves below stay on the real coordinates:
+  // they are an envelope over the strip and the timeline, not part of the
+  // picture being drawn.
+  const warp = project.sweep.enabled ? createSweepWarp(project.sweep) : null
+  const warped: [number, number] = [0, 0]
+
   // The two curves multiply into a 2D envelope over the finished composite.
   // Skipped entirely when both are flat, which is the common case.
   const { brightnessX, brightnessY } = project
@@ -285,9 +294,17 @@ export function createEvaluator(
       out[1] = background[1]
       out[2] = background[2]
 
+      let su = u
+      let sv = v
+      if (warp) {
+        warp(u, v, warped)
+        su = warped[0]
+        sv = warped[1]
+      }
+
       for (const layer of layers) {
         rgba[3] = 0
-        layer.sample(u, v, rgba)
+        layer.sample(su, sv, rgba)
         const a = rgba[3] * layer.opacity
         if (a <= 0) continue
         out[0] = clamp01(blendChannel(layer.blend, out[0], rgba[0], a))

@@ -23,6 +23,7 @@ import { sanitiseProject, SCHEMA_VERSION } from './src/model/storage'
 import { createEvaluator, evaluateField, evaluatePreview } from './src/render/field'
 import { BRIGHTNESS_POINTS, MAX_FPS, MIN_FPS } from './src/model/types'
 import { DEFAULT_PATH, PATH_KINDS, poseAt, usedParams } from './src/render/paths'
+import { createSweepWarp } from './src/render/sweep'
 import type { PathParams, Pose } from './src/render/paths'
 import type { Project } from './src/model/types'
 
@@ -455,6 +456,79 @@ ok('period = full strip does not repeat',
   const screw = { ...DEFAULT_PATH, kind: 'corkscrew' as const, turns: 2, distance: 4, tilt: 40 }
   ok('corkscrew keeps its base on the axis',
      [0, 0.3, 0.6].every((t) => near(at2(screw, t).oy, 0, 1e-9)))
+}
+
+
+// --- rotating-sweep correction --------------------------------------------
+{
+  const DEG = Math.PI / 180
+  const out: [number, number] = [0, 0]
+
+  // The warp must be the exact inverse of the sweep: the design point it picks
+  // for a cell has to be where that LED physically lands.
+  const c = { enabled: true, startAngle: 0, sweep: 180, pivot: 0 }
+  const warp = createSweepWarp(c)
+  let worst = 0
+  for (const u of [0.1, 0.4, 0.7, 1]) {
+    for (const v of [0, 0.2, 0.5, 0.8, 1]) {
+      warp(u, v, out)
+      const phi = (c.startAngle + c.sweep * v) * DEG
+      const px = (u - c.pivot) * Math.cos(phi)
+      const py = (u - c.pivot) * Math.sin(phi)
+      // Half a turn of a unit stick pivoted at the base: x in [-1,1], y in [0,1].
+      worst = Math.max(worst, Math.abs(out[0] - (px + 1) / 2), Math.abs(out[1] - py))
+    }
+  }
+  ok('the warp inverts the sweep exactly', worst < 1e-12, worst.toExponential(1))
+
+  // Fitted to the reachable area, so nothing can land outside the design.
+  for (const cfg of [
+    { enabled: true, startAngle: 0, sweep: 180, pivot: 0 },
+    { enabled: true, startAngle: -140, sweep: -95, pivot: 0.5 },
+    { enabled: true, startAngle: 33, sweep: 360, pivot: 0.2 },
+  ]) {
+    const w = createSweepWarp(cfg)
+    let inside = true
+    for (let i = 0; i <= 40; i++) {
+      for (let j = 0; j <= 40; j++) {
+        w(i / 40, j / 40, out)
+        if (!(out[0] >= -1e-9 && out[0] <= 1 + 1e-9 && out[1] >= -1e-9 && out[1] <= 1 + 1e-9)) {
+          inside = false
+        }
+      }
+    }
+    ok(`sweep ${cfg.sweep}° pivot ${cfg.pivot}: every cell lands inside the design`, inside)
+  }
+
+  // Landmarks a person can check against a drawing.
+  const half = createSweepWarp({ enabled: true, startAngle: 0, sweep: 180, pivot: 0 })
+  half(1, 0.5, out)
+  ok('tip at mid-sweep is top centre', near(out[0], 0.5, 1e-12) && near(out[1], 1, 1e-12))
+  half(1, 0, out)
+  ok('tip at the start is hard right', near(out[0], 1, 1e-12) && near(out[1], 0, 1e-12))
+
+  // Reversing the sign must mirror the result, since it is the same arc travelled
+  // the other way.
+  const fwd = createSweepWarp({ enabled: true, startAngle: 0, sweep: 180, pivot: 0 })
+  const back = createSweepWarp({ enabled: true, startAngle: 0, sweep: -180, pivot: 0 })
+  fwd(1, 0.25, out)
+  const a = [...out]
+  back(1, 0.25, out)
+  ok('a negative sweep turns the other way', near(out[1], -a[1] + 1, 1e-12) || near(out[1], 1 - a[1], 1e-12))
+
+  // Off by default, and a project without the field loads with it off.
+  ok('correction is off by default', createProject('x').sweep.enabled === false)
+  ok('a project predating it loads with it off',
+     sanitiseProject({ id: 'p', name: 'p', layers: [] }).sweep.enabled === false)
+  ok('sweep values are clamped',
+     sanitiseProject({ id: 'p', name: 'p', layers: [], sweep: { enabled: true, sweep: 9999, pivot: 5 } })
+       .sweep.sweep === 720)
+
+  // Enabling it must actually change the render, and leave it alone when off.
+  const base = solidProject()
+  const painted = { ...base, sweep: { enabled: true, startAngle: 0, sweep: 180, pivot: 0 } }
+  ok('a solid layer is unchanged by the warp',
+     evaluateField(painted).data.every((v, i) => near(v, evaluateField(base).data[i])))
 }
 
 console.log(out.join('\n'))

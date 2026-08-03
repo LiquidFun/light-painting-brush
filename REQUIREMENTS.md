@@ -496,6 +496,28 @@ separate scalar field using the same weights.
 Where `hard` is set, that keyframe wins outright inside its radius instead of
 blending — the only way to get a crisp edge out of a distance field.
 
+**Optional pre-distortion for a rotating sweep.** The canvas assumes the stick
+travels sideways, which makes the photograph a plain raster. Rotating it instead
+— far easier to do smoothly, and the only way to draw something like a pair of
+wings — makes the photograph polar: LED index becomes radius, time becomes angle,
+and a rectangle comes out as an annular sector.
+
+`sweep` warps the design the other way. For each LED at each moment it computes
+where that LED physically lands and samples the design there, so sweeping as
+described reproduces the drawing undistorted. Parameters are the start angle, the
+signed sweep in degrees (the sign is the direction) and the pivot, as a fraction
+along the strip — where the hand is.
+
+The design is fitted to the bounding box of the reachable area, so every cell
+lands inside it by construction and nothing needs clipping. Regions of the design
+the stick never reaches are simply not painted.
+
+It applies to the *coordinates*, before the layers are sampled, so everything is
+authored undistorted. The brightness curves stay on the real coordinates: they
+are an envelope over the strip and the timeline, not part of the picture.
+
+Off by default.
+
 **Interpolate colour in OKLab by default.** Naive sRGB interpolation between
 complementary colours passes through grey, which looks like a bug in a light-painting
 tool. Offer `hsv-short` for rainbow sweeps and `hsv-long` for full hue rotations, and

@@ -159,6 +159,60 @@ export function ProjectPanel({
           onChange={(pingPong) => onPatch({ playback: { ...project.playback, pingPong } })}
         />
         <Toggle
+          label="Correct for a rotating sweep"
+          hint="The canvas assumes the stick travels sideways. Turn this on if you spin
+            it instead, and the drawing is pre-distorted so the photograph comes out
+            straight."
+          checked={project.sweep.enabled}
+          onChange={(enabled) => onPatch({ sweep: { ...project.sweep, enabled } })}
+        />
+
+        {project.sweep.enabled && (
+          <>
+            <Slider
+              label="Sweep"
+              value={project.sweep.sweep}
+              min={-360}
+              max={360}
+              display={`${project.sweep.sweep}°`}
+              hint="How far the stick turns. Negative turns the other way."
+              onCommitStart={() => onPatch({}, true)}
+              onChange={(v) => onPatch({ sweep: { ...project.sweep, sweep: v } }, false)}
+            />
+            <Slider
+              label="Start angle"
+              value={project.sweep.startAngle}
+              min={-180}
+              max={180}
+              display={`${project.sweep.startAngle}°`}
+              hint="Where the stick points when the animation begins."
+              onCommitStart={() => onPatch({}, true)}
+              onChange={(v) => onPatch({ sweep: { ...project.sweep, startAngle: v } }, false)}
+            />
+            <Slider
+              label="Pivot"
+              value={Math.round(project.sweep.pivot * 100)}
+              min={0}
+              max={100}
+              display={
+                project.sweep.pivot === 0
+                  ? 'LED 0'
+                  : project.sweep.pivot === 1
+                    ? 'LED ' + (project.ledCount - 1)
+                    : `${Math.round(project.sweep.pivot * 100)}% along`
+              }
+              hint="Where your hand is. 0 pivots on the base, 50% on the middle."
+              onCommitStart={() => onPatch({}, true)}
+              onChange={(v) => onPatch({ sweep: { ...project.sweep, pivot: v / 100 } }, false)}
+            />
+            <p className="text-xs text-mute">
+              The drawing is fitted to the area the sweep can actually reach, so it fills
+              the shot. Anything falling where the stick never goes is simply not painted.
+            </p>
+          </>
+        )}
+
+        <Toggle
           label="Night mode"
           hint="Lower luminance, chrome shifted to deep red. For actual darkness."
           checked={night}

@@ -297,6 +297,7 @@ export function sanitiseProject(raw: unknown): Project {
   // project must not change speed because the default moved.
   const fps = Math.round(clamp(num(raw.fps, 25), MIN_FPS, MAX_FPS))
   const playback = isObject(raw.playback) ? raw.playback : {}
+  const sweep = isObject(raw.sweep) ? raw.sweep : {}
 
   const project: Project = {
     id: str(raw.id, base.id),
@@ -317,6 +318,13 @@ export function sanitiseProject(raw: unknown): Project {
     layers: [],
     brightnessX: curve(raw.brightnessX),
     brightnessY: curve(raw.brightnessY),
+    sweep: {
+      enabled: bool(sweep.enabled, false),
+      startAngle: clamp(num(sweep.startAngle, 0), -360, 360),
+      // Signed: the sign is the direction of travel, so the range spans both.
+      sweep: clamp(num(sweep.sweep, 180), -720, 720),
+      pivot: clamp(num(sweep.pivot, 0), 0, 1),
+    },
     playback: {
       // Existing projects keep what they had; only new ones get the new
       // defaults, which is why these fall back to false rather than to
