@@ -390,7 +390,16 @@ bool Animation::append(const uint8_t* data, size_t len) {
   // keeps the divisor non-zero and puts the last pixel in the last bucket rather
   // than one past it.
   const uint32_t span = expected_ / LS_SLOT_COLOURS + 1;
-  for (size_t i = 0; i + 2 < len; i += 3) {
+  // Start at the first whole pixel in this chunk, not at byte 0.
+  //
+  // A chunk is 4096 bytes and a pixel is 3, so only the first chunk begins on a
+  // pixel boundary; the next starts one byte in and the one after that two. This
+  // loop used to assume otherwise and read (G,B,R) as (R,G,B), then (B,R,G), so
+  // the channels evened out across a transfer and every animation came back
+  // pale. A solid red one reported (255,127,240). At most two bytes per chunk
+  // are skipped here, which is nothing to an average over a megabyte.
+  const size_t skip = (3 - (size_t)(received_ % 3)) % 3;
+  for (size_t i = skip; i + 2 < len; i += 3) {
     const uint8_t r = data[i], g = data[i + 1], b = data[i + 2];
     const uint8_t peak = r > g ? (r > b ? r : b) : (g > b ? g : b);
     if (peak < 24) continue;
