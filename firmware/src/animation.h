@@ -118,6 +118,11 @@ class Animation {
   bool flushStage();
   bool verify(const Slot& s) const;
 
+  // Mirrors a slot's metadata into header_, which is what the player reads.
+  // Assigned field by field rather than braced: AnimationHeader has default
+  // member initialisers, which stop it being an aggregate under C++11.
+  void loadHeader(const Slot& s);
+
   const void* partition_ = nullptr;  // esp_partition_t, kept opaque here
   Slot slots_[LS_MAX_SLOTS];
   int8_t selected_ = -1;

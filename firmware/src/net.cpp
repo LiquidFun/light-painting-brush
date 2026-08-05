@@ -260,7 +260,13 @@ void NetService::begin(TransportHandler* handler) {
   ws.setReconnectInterval(LS_RECONNECT_MIN_MS);
   // Without this a half-open socket after a roam looks like a live one until the
   // next upload stalls for ten seconds.
-  ws.enableHeartbeat(15000, 3000, 2);
+  //
+  // The pong window is generous because every byte of an upload is written to
+  // flash from inside ws.loop(): a 64 KB block erase is a stall of a hundred-odd
+  // milliseconds typical, and an order of magnitude more in the datasheet's
+  // worst case. At 3 s a stick that was merely busy erasing could be hung up on,
+  // which aborts the transfer and leaves the LED orange.
+  ws.enableHeartbeat(15000, 6000, 2);
 
 #if LS_RELAY_TLS
   ws.beginSSL(LS_RELAY_HOST, LS_RELAY_PORT, LS_RELAY_PATH);

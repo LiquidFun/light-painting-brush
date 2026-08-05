@@ -222,7 +222,13 @@ constexpr uint8_t LS_DIR_VERSION = 1;
 // Hard ceiling on a single transfer, however steadily bytes arrive. The idle
 // timeout above only fires when they stop; a slow trickle could hold RECEIVING
 // open forever, and RECEIVING blocks playback and the button.
-constexpr uint32_t LS_TRANSFER_MAX_MS = 90000;
+//
+// Proportional to the payload rather than flat. A flat 90 s was a ceiling on
+// animation *length* in disguise: now that a 1.7 MB upload is a normal thing to
+// do, a perfectly healthy transfer would have been killed for being big.
+constexpr uint32_t LS_TRANSFER_GRACE_MS = 20000;
+/** Slower than this, sustained, and the transfer is not going to finish. */
+constexpr uint32_t LS_TRANSFER_MIN_BYTES_PER_MS = 8;  // 8 kB/s
 
 // How long the radio stays quiet once playback starts (§4.2).
 //

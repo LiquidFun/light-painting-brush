@@ -48,6 +48,9 @@ char pendingName[LS_SLOT_NAME] = {0};
 
 // Set by the Data callback when a progress/completion notification is due.
 volatile bool statusDue = false;
+// Set when a chunk could not be stored. Acted on in loop(), like everything else
+// the transport hands over.
+volatile bool dataFailed = false;
 // When the current transfer began, for the absolute ceiling.
 uint32_t receiveStartedMs = 0;
 uint32_t lastProgressNotifyBytes = 0;
@@ -171,6 +174,7 @@ void handleBeginUpload(const uint8_t* payload, size_t len) {
   lastProgressNotifyBytes = 0;
   lastDataMs = millis();
   receiveStartedMs = millis();
+  dataFailed = false;
   setState(STATE_RECEIVING);
 }
 
@@ -295,8 +299,10 @@ class Handler : public TransportHandler {
     if (state != STATE_RECEIVING) return;
     lastDataMs = millis();
     if (!animation.append(data, len)) {
-      // Overrun: the peer sent more than the header promised.
-      statusDue = true;
+      // Either the peer sent more than the header promised or a flash write
+      // failed. Both are fatal to this transfer, and reporting nothing left it
+      // to hit the 10 s idle timeout instead — which reads as a dead stick.
+      dataFailed = true;
       return;
     }
     if (animation.complete() ||
@@ -310,7 +316,9 @@ class Handler : public TransportHandler {
     // progress (§2). Only a partial transfer is worth abandoning, and doing so
     // now costs nothing: the stored set was never at risk.
     if (state == STATE_RECEIVING) {
-      Serial.println("[upload] aborted by disconnect");
+      Serial.printf("[upload] aborted by disconnect at %u of %u bytes, %u ms in\n",
+                    (unsigned)animation.received(), (unsigned)animation.expected(),
+                    (unsigned)(millis() - receiveStartedMs));
       animation.abort();
       settle();
     }
@@ -479,20 +487,34 @@ void loop() {
     statusDue = false;
     lastProgressNotifyBytes = animation.received();
     if (state == STATE_RECEIVING && !animation.complete()) {
-      Serial.printf("[upload] %u / %u\n", (unsigned)animation.received(),
-                    (unsigned)animation.expected());
+      // Elapsed and rate, not just a byte count. A transfer that dies at the
+      // same *time* every attempt is the socket giving up on itself; one that
+      // dies at the same *offset* is the flash. The byte count alone cannot
+      // tell those apart, and guessing between them wasted a session.
+      const uint32_t ms = millis() - receiveStartedMs;
+      Serial.printf("[upload] %u / %u after %u ms (%u B/s)\n",
+                    (unsigned)animation.received(), (unsigned)animation.expected(),
+                    (unsigned)ms, (unsigned)(ms ? animation.received() * 1000u / ms : 0));
       publish();
     }
   }
 
   if (state == STATE_RECEIVING) {
-    if (animation.complete()) {
+    if (dataFailed) {
+      dataFailed = false;
+      Serial.printf("[upload] failed at %u of %u bytes\n", (unsigned)animation.received(),
+                    (unsigned)animation.expected());
+      animation.abort();
+      setState(STATE_ERROR, LS_ERR_OUT_OF_MEMORY);
+    } else if (animation.complete()) {
       finishUpload();
     } else if (millis() - lastDataMs > LS_TRANSFER_TIMEOUT_MS) {
       Serial.println("[upload] timeout: no data");
       animation.abort();
       setState(STATE_ERROR, LS_ERR_TIMEOUT);
-    } else if (millis() - receiveStartedMs > LS_TRANSFER_MAX_MS) {
+    } else if (millis() - receiveStartedMs >
+               LS_TRANSFER_GRACE_MS +
+                   animation.expected() / LS_TRANSFER_MIN_BYTES_PER_MS) {
       // A trickle keeps lastDataMs fresh forever, and RECEIVING blocks playback
       // and the button. Better to fail than to sit there unusable.
       Serial.printf("[upload] timeout: %u of %u bytes after %u ms\n",

@@ -68,9 +68,20 @@ constexpr size_t SL_NAME = 24;        // char[16]
 constexpr size_t DIR_SIZE = DIR_SLOTS + LS_MAX_SLOTS * SLOT_SIZE + 4;  // + self crc
 static_assert(DIR_SIZE <= LS_FLASH_SECTOR, "directory must fit one sector");
 
-/** Rounds up to a sector, so two animations never share one. */
+/**
+ * Rounds up to a 64 KB block, not a 4 KB sector.
+ *
+ * eraseThrough can only use a block erase where a whole block lies inside the
+ * animation's extent, so a sector-aligned extent meant most uploads never got
+ * one: a 54 KB animation did fourteen sector erases, which is several times the
+ * flash time of the single block erase it needs. Every one of those runs inside
+ * ws.loop(), so it is also time the socket is not being serviced.
+ *
+ * The padding is free in practice: the partition is 38 blocks of payload
+ * against twelve slots, so even twelve tiny animations fit with room to spare.
+ */
 uint32_t alignUp(uint32_t v) {
-  return (v + LS_FLASH_SECTOR - 1) & ~(LS_FLASH_SECTOR - 1);
+  return (v + LS_FLASH_BLOCK - 1) & ~(LS_FLASH_BLOCK - 1);
 }
 
 bool overlaps(uint32_t aStart, uint32_t aEnd, uint32_t bStart, uint32_t bEnd) {
@@ -109,6 +120,15 @@ uint8_t Animation::used() const {
 }
 
 // --- directory --------------------------------------------------------------
+
+void Animation::loadHeader(const Slot& s) {
+  header_.flags = s.flags;
+  header_.ledCount = LED_COUNT;
+  header_.frameCount = s.frameCount;
+  header_.fps = s.fps;
+  header_.startDelayMs = s.startDelayMs;
+  header_.crc32 = s.crc32;
+}
 
 bool Animation::readDirectory() {
   static uint8_t buf[DIR_SIZE];
@@ -160,9 +180,7 @@ bool Animation::readDirectory() {
   if (selected_ >= 0 && (selected_ >= LS_MAX_SLOTS || !slots_[selected_].used)) {
     selected_ = nextUsed(-1);
   }
-  if (selected_ >= 0) header_ = {slots_[selected_].flags, LED_COUNT,
-                                 slots_[selected_].frameCount, slots_[selected_].fps,
-                                 slots_[selected_].startDelayMs, slots_[selected_].crc32};
+  if (selected_ >= 0) loadHeader(slots_[selected_]);
   return true;
 }
 
@@ -226,7 +244,7 @@ bool Animation::select(int8_t i) {
     return false;
   }
   selected_ = i;
-  header_ = {s.flags, LED_COUNT, s.frameCount, s.fps, s.startDelayMs, s.crc32};
+  loadHeader(s);
   writeDirectory();
   Serial.printf("[flash] slot %d '%s': %u frames, verified in %u ms\n", (int)i, s.name,
                 s.frameCount, (unsigned)(millis() - started));
@@ -277,12 +295,21 @@ ErrorCode Animation::begin(const uint8_t* header, size_t len, const char* name) 
   if (h.frameCount == 0 || h.fps == 0) return LS_ERR_BAD_HEADER;
 
   const uint32_t size = (uint32_t)h.frameCount * h.ledCount * 3u;
-  if (size > maxAnimationBytes()) return LS_ERR_OUT_OF_MEMORY;
+  // The extent, not the payload, is what has to fit: an animation reserves whole
+  // erase blocks. Comparing the payload here and reserving the extent below let
+  // a transfer claim space past the end of the partition, and eraseThrough would
+  // then have erased off the end of it.
+  const uint32_t extent = alignUp(size);
+  if (extent > maxAnimationBytes()) return LS_ERR_OUT_OF_MEMORY;
 
   const uint32_t end = part(partition_)->size;
-  uint32_t at = cursor_ < LS_PAYLOAD_OFFSET ? LS_PAYLOAD_OFFSET : cursor_;
+  // Block-aligned start, not just a block-sized extent. eraseThrough tests
+  // `erasedTo_ % LS_FLASH_BLOCK == 0`, so a whole-block extent starting part-way
+  // into a block still gets erased a sector at a time — and a cursor left behind
+  // by the previous sector-aligned firmware is exactly that.
+  uint32_t at = cursor_ < LS_PAYLOAD_OFFSET ? LS_PAYLOAD_OFFSET : alignUp(cursor_);
   // Wrap rather than search for a gap. There is no allocator here on purpose.
-  if (at + size > end) at = LS_PAYLOAD_OFFSET;
+  if (at + extent > end) at = LS_PAYLOAD_OFFSET;
 
   // Take a free slot, else the oldest thing we are about to overwrite anyway.
   int8_t target = -1;
@@ -290,7 +317,6 @@ ErrorCode Animation::begin(const uint8_t* header, size_t len, const char* name) 
     if (!slots_[i].used) target = (int8_t)i;
   }
 
-  const uint32_t extent = alignUp(size);
   for (uint8_t i = 0; i < LS_MAX_SLOTS; i++) {
     Slot& s = slots_[i];
     if (!s.used) continue;
@@ -425,7 +451,6 @@ void Animation::abort() {
   expected_ = 0;
   staged_ = 0;
   if (selected_ >= 0 && selected_ < LS_MAX_SLOTS && slots_[selected_].used) {
-    const Slot& s = slots_[selected_];
-    header_ = {s.flags, LED_COUNT, s.frameCount, s.fps, s.startDelayMs, s.crc32};
+    loadHeader(slots_[selected_]);
   }
 }
