@@ -63,6 +63,18 @@ constexpr size_t LS_RELAY_CHUNK = 4096;
 constexpr uint32_t LS_RECONNECT_MIN_MS = 1000;
 constexpr uint32_t LS_RECONNECT_MAX_MS = 30000;
 
+// WebSocket keep-alive, for spotting a half-open socket after a roam.
+//
+// Suspended entirely while RECEIVING. Everything in the receive path runs inside
+// ws.loop(), and a flash block erase stalls it for a second or more, so a
+// perfectly healthy stick could not answer a ping in time and hung up on itself
+// part-way through a large upload. Arriving bytes are better evidence of a live
+// link than a pong is, and LS_TRANSFER_TIMEOUT_MS already catches a dead one —
+// sooner than the heartbeat would have.
+constexpr uint32_t LS_PING_INTERVAL_MS = 15000;
+constexpr uint32_t LS_PONG_TIMEOUT_MS = 6000;
+constexpr uint8_t LS_PONG_MISSES = 2;
+
 // ---------------------------------------------------------------------------
 // BLE GATT (v1, legacy)
 // ---------------------------------------------------------------------------

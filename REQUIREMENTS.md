@@ -296,6 +296,15 @@ Basic auth password live in `secrets.h`, which is **gitignored**; commit a
 Provisioning is compile-time for the alpha. A captive portal is the right answer once
 more than one person owns a stick, and is out of scope until then.
 
+The WebSocket keep-alive is **suspended while a transfer is in progress**. Every
+byte of an upload is written to flash from inside the socket's event loop, and a
+block erase stalls it for a second or more, so a perfectly healthy stick could
+not answer a ping in time and hung up on itself part-way through a large upload —
+measured at ~750 KB with a 3 s pong window and ~1.4 MB with a 6 s one, the
+failure point moving with the timeout. Raising it only moves the cliff. Arriving
+bytes are better evidence of a live link than a pong, and the transfer's own idle
+timeout catches a dead one sooner than the heartbeat would.
+
 The radio must not disturb playback, so it goes quiet while an animation plays —
 no scan, no TCP connect, no TLS handshake. The animation is already stored and
 needs no network to play.

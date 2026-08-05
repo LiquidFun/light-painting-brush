@@ -38,8 +38,15 @@ class NetService : public Transport {
  private:
   void sendHello();
 
+  // Keep-alive on or off. Off during a transfer: flash writes stall ws.loop()
+  // for seconds, so a busy stick could not answer a ping and disconnected
+  // itself part-way through a large upload. `force` re-applies it after a
+  // reconnect, where the library has rebuilt its client state.
+  void setHeartbeat(bool on, bool force = false);
+
   TransportHandler* handler_ = nullptr;
   bool linked_ = false;
+  bool heartbeat_ = true;
   uint32_t backoffMs_ = LS_RECONNECT_MIN_MS;
   bool wifiWasUp_ = false;
 };

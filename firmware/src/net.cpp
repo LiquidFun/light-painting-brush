@@ -259,14 +259,9 @@ void NetService::begin(TransportHandler* handler) {
   ws.onEvent(onWsEvent);
   ws.setReconnectInterval(LS_RECONNECT_MIN_MS);
   // Without this a half-open socket after a roam looks like a live one until the
-  // next upload stalls for ten seconds.
-  //
-  // The pong window is generous because every byte of an upload is written to
-  // flash from inside ws.loop(): a 64 KB block erase is a stall of a hundred-odd
-  // milliseconds typical, and an order of magnitude more in the datasheet's
-  // worst case. At 3 s a stick that was merely busy erasing could be hung up on,
-  // which aborts the transfer and leaves the LED orange.
-  ws.enableHeartbeat(15000, 6000, 2);
+  // next upload stalls for ten seconds. Suspended during a transfer — see
+  // setHeartbeat below.
+  ws.enableHeartbeat(LS_PING_INTERVAL_MS, LS_PONG_TIMEOUT_MS, LS_PONG_MISSES);
 
 #if LS_RELAY_TLS
   ws.beginSSL(LS_RELAY_HOST, LS_RELAY_PORT, LS_RELAY_PATH);
@@ -302,6 +297,10 @@ void NetService::onConnected() {
   backoffMs_ = LS_RECONNECT_MIN_MS;
   ws.setReconnectInterval(backoffMs_);
   Serial.printf("[net] relay connected, heap %u\n", (unsigned)ESP.getFreeHeap());
+  // Re-applied rather than assumed: a reconnect rebuilds the library's client
+  // state, and a socket that came back while the last transfer was still marked
+  // RECEIVING would otherwise be left with no keep-alive at all.
+  setHeartbeat(lastStatus.state != STATE_RECEIVING, true);
   sendHello();
   publishStatus(lastStatus);
   if (slotsJson[0]) ws.sendTXT(slotsJson);
@@ -398,9 +397,22 @@ void NetService::sendHello() {
   ws.sendTXT(buf);
 }
 
+void NetService::setHeartbeat(bool on, bool force) {
+  if (on == heartbeat_ && !force) return;
+  heartbeat_ = on;
+  if (on) {
+    ws.enableHeartbeat(LS_PING_INTERVAL_MS, LS_PONG_TIMEOUT_MS, LS_PONG_MISSES);
+  } else {
+    ws.disableHeartbeat();
+  }
+}
+
 void NetService::publishStatus(const StatusSnapshot& s) {
   // Cached even when offline, so the next `hello` reports a real ceiling.
   lastStatus = s;
+  // Every state change comes through here, so this is the one place that knows
+  // when a transfer starts and ends without a second callback for it.
+  setHeartbeat(s.state != STATE_RECEIVING);
   if (!linked_) return;
 
   char buf[224];
