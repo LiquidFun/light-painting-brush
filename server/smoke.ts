@@ -221,6 +221,39 @@ ok(
   crc32(new TextEncoder().encode('123456789')).toString(16),
 )
 
+
+// --- a device that drops mid-upload must not come back stuck ---------------
+{
+  const dev2 = await open('/ws/device')
+  const hello = {
+    t: 'hello', proto: 2, deviceId: 'lightstick-stuck', name: 'Stuck',
+    ledCount: 144, maxAnimationBytes: 200000, fw: '2.0.0',
+  }
+  dev2.send(JSON.stringify(hello))
+  await next(client, (m: any) => m.t === 'devices' && m.devices.some((d: any) => d.deviceId === 'lightstick-stuck'))
+
+  // Mid-upload, then the link dies.
+  dev2.send(JSON.stringify({
+    t: 'status', state: 1, error: 0, bytesReceived: 4096, bytesExpected: 54000,
+    maxAnimationBytes: 200000,
+  }))
+  await next(client, (m: any) => m.t === 'status' && m.deviceId === 'lightstick-stuck' && m.state === 1)
+  dev2.close()
+  await next(client, (m: any) => m.t === 'devices' &&
+    m.devices.find((d: any) => d.deviceId === 'lightstick-stuck')?.online === false)
+
+  // It reboots and reconnects. RECEIVING must not survive: it disables Play in
+  // every browser and reads as a stick stuck uploading forever.
+  const dev3 = await open('/ws/device')
+  dev3.send(JSON.stringify(hello))
+  const back = await next(client, (m: any) => m.t === 'devices' &&
+    m.devices.find((d: any) => d.deviceId === 'lightstick-stuck')?.online === true)
+  const entry = back.devices.find((d: any) => d.deviceId === 'lightstick-stuck')
+  ok('a reconnecting device does not keep a stale RECEIVING', entry.state === 0, `state ${entry.state}`)
+  ok('and its byte counters are cleared', entry.bytesReceived === 0 && entry.bytesExpected === 0)
+  dev3.close()
+}
+
 client.close()
 child.kill()
 console.log(results.join('\n'))

@@ -44,6 +44,8 @@ size_t pendingLen = 0;
 
 // Set by the Data callback when a progress/completion notification is due.
 volatile bool statusDue = false;
+// When the current transfer began, for the absolute ceiling.
+uint32_t receiveStartedMs = 0;
 uint32_t lastProgressNotifyBytes = 0;
 volatile uint32_t lastDataMs = 0;
 
@@ -144,6 +146,7 @@ void handleBeginUpload(const uint8_t* payload, size_t len) {
                 transport.chunkSize());
   lastProgressNotifyBytes = 0;
   lastDataMs = millis();
+  receiveStartedMs = millis();
   setState(STATE_RECEIVING);
 }
 
@@ -197,7 +200,13 @@ void handleControl(uint8_t op, const uint8_t* payload, size_t len) {
       break;
 
     case OP_IDENTIFY:
-      if (player.exposing()) {
+      if (state == STATE_RECEIVING) {
+      // The one control you have in a field. It did nothing here, which is what
+      // made a stuck transfer feel like a dead stick.
+      Serial.println("[button] abandoning the transfer");
+      animation.reset();
+      setState(STATE_IDLE);
+    } else if (player.exposing()) {
         reportBadState(op);
         break;
       }
@@ -357,7 +366,15 @@ void loop() {
     if (animation.complete()) {
       finishUpload();
     } else if (millis() - lastDataMs > LS_TRANSFER_TIMEOUT_MS) {
-      Serial.println("[upload] timeout");
+      Serial.println("[upload] timeout: no data");
+      animation.reset();
+      setState(STATE_ERROR, LS_ERR_TIMEOUT);
+    } else if (millis() - receiveStartedMs > LS_TRANSFER_MAX_MS) {
+      // A trickle keeps lastDataMs fresh forever, and RECEIVING blocks playback
+      // and the button. Better to fail than to sit there unusable.
+      Serial.printf("[upload] timeout: %u of %u bytes after %u ms\n",
+                    (unsigned)animation.received(), (unsigned)animation.expected(),
+                    (unsigned)(millis() - receiveStartedMs));
       animation.reset();
       setState(STATE_ERROR, LS_ERR_TIMEOUT);
     }

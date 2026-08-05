@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <string.h>
 #include <WiFi.h>
 #include <WiFiMulti.h>
@@ -30,7 +31,7 @@ char deviceIdBuf[32] = "lightstick-000000000000";
 
 /** How long to sit in wifiMulti.run() before giving up on this pass. */
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 6000;
-constexpr uint32_t WIFI_RETRY_MS = 5000;
+constexpr uint32_t WIFI_RETRY_MS = 1500;
 /** Direct re-joins to try before falling back to a full scan. */
 constexpr uint32_t DIRECT_REJOIN_TRIES = 5;
 
@@ -38,6 +39,52 @@ uint32_t lastWifiAttemptMs = 0;
 /** Index into NETWORKS of the AP we were last associated with, or -1. */
 int lastNetwork = -1;
 uint32_t directTries = 0;
+
+/**
+ * The access point we last joined, kept in NVS across reboots.
+ *
+ * Joining blind costs a full scan of every 2.4 GHz channel — seconds, every
+ * time, including at boot. Given the exact BSSID and channel the radio can go
+ * straight to it, which is the difference between a stick that is on the network
+ * before you have finished picking it up and one you stand around waiting for.
+ */
+Preferences prefs;
+uint8_t hintBssid[6] = {0};
+int32_t hintChannel = 0;
+bool haveHint = false;
+
+void loadHint() {
+  if (!prefs.begin("lightstick", true)) return;
+  hintChannel = prefs.getInt("ch", 0);
+  haveHint = prefs.getBytes("bssid", hintBssid, sizeof(hintBssid)) == sizeof(hintBssid) &&
+             hintChannel > 0;
+  lastNetwork = prefs.getInt("net", -1);
+  prefs.end();
+  if (haveHint) {
+    Serial.printf("[wifi] remembered channel %d, going straight there\n", (int)hintChannel);
+  }
+}
+
+void saveHint() {
+  const uint8_t* bssid = WiFi.BSSID();
+  if (!bssid) return;
+  if (!prefs.begin("lightstick", false)) return;
+  prefs.putBytes("bssid", bssid, 6);
+  prefs.putInt("ch", WiFi.channel());
+  prefs.putInt("net", lastNetwork);
+  prefs.end();
+  memcpy(hintBssid, bssid, 6);
+  hintChannel = WiFi.channel();
+  haveHint = true;
+}
+
+void forgetHint() {
+  haveHint = false;
+  if (!prefs.begin("lightstick", false)) return;
+  prefs.remove("bssid");
+  prefs.remove("ch");
+  prefs.end();
+}
 uint32_t failedJoins = 0;
 StatusSnapshot lastStatus;
 
@@ -137,6 +184,7 @@ void ensureWifi(bool& wasUp, bool playing) {
       for (size_t i = 0; i < sizeof(NETWORKS) / sizeof(NETWORKS[0]); i++) {
         if (WiFi.SSID() == NETWORKS[i].ssid) lastNetwork = (int)i;
       }
+      saveHint();
       Serial.printf("[wifi] %s, ip %s, rssi %d\n", WiFi.SSID().c_str(),
                     WiFi.localIP().toString().c_str(), WiFi.RSSI());
     }
@@ -149,8 +197,20 @@ void ensureWifi(bool& wasUp, bool playing) {
 
   if (lastNetwork >= 0 && directTries < DIRECT_REJOIN_TRIES) {
     directTries++;
-    WiFi.begin(NETWORKS[lastNetwork].ssid, NETWORKS[lastNetwork].password);
+    if (haveHint) {
+      // Channel and BSSID given, so the radio skips the scan entirely.
+      WiFi.begin(NETWORKS[lastNetwork].ssid, NETWORKS[lastNetwork].password, hintChannel,
+                 hintBssid);
+    } else {
+      WiFi.begin(NETWORKS[lastNetwork].ssid, NETWORKS[lastNetwork].password);
+    }
     return;
+  }
+  // The remembered AP is not answering — it may have moved channel, or we may be
+  // somewhere else entirely. Drop the hint so the scan below can find the truth.
+  if (haveHint) {
+    Serial.println("[wifi] remembered AP did not answer, falling back to a scan");
+    forgetHint();
   }
 
   // From here on it blocks, so not while the strip is live.
@@ -176,7 +236,13 @@ void NetService::begin(TransportHandler* handler) {
   // Modem sleep saves power but adds tens of milliseconds of latency to every
   // packet, which shows up as a stalled upload rather than as savings.
   WiFi.setSleep(false);
+  // The SDK reconnects faster than our loop can notice and react.
+  WiFi.setAutoReconnect(true);
+  // Credentials come from secrets.h on every boot, so letting the SDK write its
+  // own copy to flash buys nothing and costs a flash write per connect.
+  WiFi.persistent(false);
   buildDeviceId();
+  loadHint();
 
   for (const Network& n : NETWORKS) wifiMulti.addAP(n.ssid, n.password);
   Serial.printf("[net] %u network(s), device %s\n", (unsigned)(sizeof(NETWORKS) / sizeof(NETWORKS[0])),

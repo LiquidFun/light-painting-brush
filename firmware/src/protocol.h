@@ -198,6 +198,11 @@ constexpr uint32_t LS_PAYLOAD_OFFSET = LS_FLASH_BLOCK;
 // noise.
 constexpr uint32_t LS_RECORD_MAGIC = 0x3253504C;
 
+// Hard ceiling on a single transfer, however steadily bytes arrive. The idle
+// timeout above only fires when they stop; a slow trickle could hold RECEIVING
+// open forever, and RECEIVING blocks playback and the button.
+constexpr uint32_t LS_TRANSFER_MAX_MS = 90000;
+
 // How long the radio stays quiet once playback starts (§4.2).
 //
 // Bounded, because it must be. A looping animation never ends, so an unbounded

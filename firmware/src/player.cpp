@@ -166,7 +166,9 @@ void Player::showStatusLed(DeviceState state, LinkStage link) {
         c = CRGB::Blue;
         break;
       case STATE_RECEIVING:
-        c = CRGB::Blue;
+        // Its own colour. Sharing blue with IDLE meant a stick stuck mid-upload
+        // looked exactly like an idle one with nothing stored.
+        c = CRGB::Cyan;
         break;
       case STATE_READY:
         c = CRGB::Green;

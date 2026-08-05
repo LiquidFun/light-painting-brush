@@ -79,9 +79,15 @@ export class Relay {
         id = hello.deviceId
         // A reconnect replaces the old socket rather than making a second entry:
         // the id is stable across reboots precisely so this works.
+        //
+        // The old status goes with it. Carrying it over meant a stick that
+        // dropped mid-upload came back still advertised as RECEIVING, which
+        // disables Play in every browser and reads as a stick stuck uploading
+        // forever — until the relay was restarted, which is exactly the symptom
+        // that made this look like a server bug.
         const existing = this.devices.get(id)
         if (existing?.socket && existing.socket !== socket) existing.socket.close()
-        this.devices.set(id, { hello, status: existing?.status ?? null, socket })
+        this.devices.set(id, { hello, status: null, socket })
         console.log(`[device] ${id} online (${hello.name}, fw ${hello.fw})`)
         this.broadcastDevices()
         return
@@ -106,6 +112,7 @@ export class Relay {
       for (const client of this.clients) {
         if (client.target === id) {
           client.target = null
+          client.remaining = 0
           this.send(client.socket, {
             t: 'error',
             message: 'The stick dropped off the network mid-upload. Upload again.',

@@ -112,9 +112,14 @@ While idle, LED 0 alone is lit dim (brightness 8):
 |---|---|---|
 | magenta | never joined WiFi | SSID, 2.4 GHz vs 5 GHz, hidden network, password |
 | orange | on WiFi, but the relay is not answering | relay host, TLS, Basic auth credentials, is the server up |
-| blue | idle, or receiving an upload | — |
-| green | animation loaded and verified, ready | — |
+| blue | idle — nothing stored | upload something |
+| cyan | receiving an upload | if it stays here, press BOOT to abandon it |
+| green | animation stored and verified, ready to play | — |
 | red | error | serial log for the code |
+
+**Blue after a reboot means the flash is empty.** A stick with a stored animation
+comes up green. Blue and cyan used to share a colour, which made a stuck transfer
+indistinguishable from an idle stick.
 
 Magenta and orange are the important pair: they split "the radio never got on
 the network" from "the network is fine and the server is the problem", which are
