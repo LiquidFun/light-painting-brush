@@ -13,6 +13,10 @@
 
 #include "protocol.h"
 
+// Only ever passed by reference, and animation.h has no business being pulled
+// into every transport's translation unit.
+class Animation;
+
 // How far the stick has got toward being reachable. Split out from a plain bool
 // because "the radio never joined" and "joined, but the relay did not answer"
 // need completely different fixes, and the status LED is often the only
@@ -42,6 +46,12 @@ class TransportHandler {
   // payload is the 20-byte header from protocol.h.
   virtual void onControl(const uint8_t* data, size_t len) = 0;
 
+  // The name to file the next upload under. Separate from onControl because the
+  // 20-byte header has no room for it and widening it would break the BLE build;
+  // the relay sends it alongside `begin`, immediately before the control frame.
+  // Transports that cannot carry a name simply never call this.
+  virtual void onName(const char* name) { (void)name; }
+
   virtual void onData(const uint8_t* data, size_t len) = 0;
 
   // The link went away. Must not disturb a loaded animation or playback in
@@ -66,6 +76,12 @@ class Transport {
   virtual void poll(bool quiesce, bool playing) = 0;
 
   virtual void publishStatus(const StatusSnapshot& s) = 0;
+
+  // The stored set, whenever it changes. Kept out of the status message because
+  // that one goes out several times a second during an upload and this one is a
+  // kilobyte. Transports that have no way to express it ignore it — the picker
+  // works from the button alone, so a browser view of the set is a convenience.
+  virtual void publishSlots(const Animation& store) { (void)store; }
 
   virtual LinkStage linkStage() const = 0;
 

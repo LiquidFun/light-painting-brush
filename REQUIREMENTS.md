@@ -40,9 +40,11 @@ read is well under a millisecond against a 40 ms budget.
 RAM is no longer involved, and PSRAM is therefore not the fix for longer
 animations that §0 previously called for.
 
-Only **one** animation is stored. Several selectable slots, cycled from the BOOT
-button, would let a shoot run with no phone and no server at all; that is a
-deliberate follow-up, not part of this.
+**Up to twelve animations** are stored at once and the BOOT button picks between
+them, so a shoot runs with no phone and no server once they are loaded. Space is
+allocated append-and-wrap: an upload lands at a write cursor, restarts at the
+beginning if it will not fit, and evicts whatever it overlaps. No free list, no
+compaction — one animation may still take the whole partition. See PROTOCOL.md §8.
 
 ---
 
@@ -159,22 +161,25 @@ version — `2` — and is what makes error `2` below reachable.
 |---|---|---|
 | `hello` | `proto`, `deviceId`, `name`, `ledCount`, `maxAnimationBytes`, `fw` | Sent immediately on connect |
 | `status` | `state`, `error`, `bytesReceived`, `bytesExpected`, `maxAnimationBytes` | On every state change, and every ~64 KB while receiving |
+| `slots` | `selected`, `slots` | Right after `hello`, and whenever the stored set changes |
 
 **Client → server**
 
 | `t` | Fields | Meaning |
 |---|---|---|
-| `subscribe` | — | Begin receiving `devices` and `status` |
-| `begin` | `proto`, `deviceId`, `ledCount`, `frameCount`, `fps`, `startDelayMs`, `loop`, `pingPong`, `autoPlay`, `bytes`, `crc32` | Followed by binary frames totalling `bytes` |
-| `play` / `stop` / `clear` / `identify` | `deviceId` | |
+| `subscribe` | — | Begin receiving `devices`, `status` and `slots` |
+| `begin` | `proto`, `deviceId`, `name`, `ledCount`, `frameCount`, `fps`, `startDelayMs`, `loop`, `pingPong`, `autoPlay`, `bytes`, `crc32` | Followed by binary frames totalling `bytes` |
+| `play` / `stop` / `clear` / `identify` | `deviceId` | `clear` deletes the selected animation |
+| `select` / `deleteSlot` | `deviceId`, `slot` | |
 | `brightness` | `deviceId`, `value` (0–255) | |
 
 **Server → client**
 
 | `t` | Fields | Meaning |
 |---|---|---|
-| `devices` | array of `hello` payloads plus `online` | Sent on subscribe and whenever the set changes |
+| `devices` | array of `hello` payloads plus `online`, the last `status` and the last `slots` | Sent on subscribe and whenever the set changes |
 | `status` | `deviceId` plus the device's `status` fields | Broadcast to all subscribed clients |
+| `slots` | `deviceId`, `selected`, `slots` | Broadcast to all subscribed clients |
 | `error` | `message` | Human-readable, safe to display verbatim |
 
 ### 3.4 Device states
@@ -183,9 +188,9 @@ version — `2` — and is what makes error `2` below reachable.
 
 | Code | State |
 |---|---|
-| `0` | idle — no animation in RAM |
+| `0` | idle — nothing stored |
 | `1` | receiving |
-| `2` | ready — animation loaded and verified |
+| `2` | ready — an animation is selected and verified |
 | `3` | playing |
 | `4` | error |
 
@@ -255,13 +260,22 @@ change and can retry.
   erasing one block ahead of the write cursor so clearing 2.4 MB is spread across
   the transfer rather than blocking for seconds up front. The CRC is accumulated
   as the bytes go past, not by a second pass.
-- A `begin` invalidates the stored record before the first byte lands, so a
-  transfer that dies half way cannot leave a valid record pointing at a payload
-  that is half one animation and half another.
-- On boot, verify the stored animation's CRC before trusting it and come up
-  `READY` if it passes.
+- A `begin` rewrites the slot directory, releasing the slots its bytes will land
+  on, **before** the first byte lands. A transfer that dies half way therefore
+  cannot leave a valid record pointing at a payload that is half one animation
+  and half another, and cannot cost anything it did not overwrite.
+- The directory is written to two sectors alternately, newest sequence number
+  winning, so a power cut during a directory write leaves the previous set intact
+  rather than no set at all.
+- Verify a slot's CRC when it is selected, not at boot: verifying all twelve
+  would read the whole partition, and only the one about to play matters.
 - **Trigger sources**, all equivalent: `play` from the relay, a press of the BOOT
   button on `GPIO 0`, or upload completion when `autoPlay` is set.
+- **Picking without a phone**: a long press on BOOT opens a picker that shows one
+  LED per stored animation in that animation's own average colour, a dark gap,
+  then the highlighted animation previewing across the rest of the strip. Short
+  presses step; another long press confirms. Only the confirming press commits,
+  because committing costs a CRC pass and a directory write.
 - Playback: honour `startDelayMs`, then step frames on a `micros()` schedule derived
   from `fps`. Never use `delay()` — a non-blocking timer in `loop()` keeps the socket
   and the button responsive.
@@ -759,7 +773,5 @@ Recorded here so they are decisions rather than omissions:
   reliable. Revisit alongside per-device tokens.
 - **Streaming playback over the network.** Flash storage (§0) removed the reason
   to want it.
-- **Multiple stored animations.** One slot for now; several, cycled from BOOT,
-  would allow shooting with no phone and no server.
 - **Runtime WiFi provisioning.** Credentials are compile-time.
 - **Compression.** Unnecessary at WiFi speeds.

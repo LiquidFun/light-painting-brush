@@ -90,6 +90,10 @@ enum Opcode : uint8_t {
   OP_CLEAR = 0x05,
   OP_IDENTIFY = 0x06,
   OP_ABORT_UPLOAD = 0x07,
+  // Payload is one byte: the slot index. The stick holds several animations, so
+  // playing one is now two decisions rather than one (§2.3).
+  OP_SELECT = 0x08,
+  OP_DELETE = 0x09,
 };
 
 // ---------------------------------------------------------------------------
@@ -185,18 +189,35 @@ constexpr uint32_t LS_FLASH_SECTOR = 4096;
 // sector erases, and this is done while a transfer is in flight.
 constexpr uint32_t LS_FLASH_BLOCK = 65536;
 
-// One sector reserved at the front for the record that makes a stored animation
-// findable after a reboot. The payload starts after it.
-constexpr uint32_t LS_RECORD_OFFSET = 0;
-// A whole block, not just a sector: starting the payload on a 64 KB boundary
-// means every erase during a transfer is a block erase rather than sixteen
-// sector erases. Costs 60 KB of 2.44 MB, and roughly halves the write time.
+// How many animations the stick holds. The picker shows one LED per slot at the
+// base of the strip, so this also has to leave room for a preview.
+constexpr uint8_t LS_MAX_SLOTS = 12;
+/** Including the terminator. Long enough to tell two animations apart. */
+constexpr size_t LS_SLOT_NAME = 16;
+
+// Dark LEDs between the slot markers and the preview, so the two do not read as
+// one picture.
+constexpr uint16_t LS_PICKER_GAP = 10;
+/** Hold BOOT this long to enter or leave the picker. */
+constexpr uint32_t LS_LONG_PRESS_MS = 700;
+/** Preview frame rate in the picker. */
+constexpr uint32_t LS_PICKER_FPS = 20;
+
+// The directory is written to two sectors alternately, newest sequence wins. A
+// power cut during a directory write therefore leaves the previous one intact,
+// which is what makes an upload atomic.
+constexpr uint32_t LS_DIR_A_OFFSET = 0;
+constexpr uint32_t LS_DIR_B_OFFSET = LS_FLASH_SECTOR;
+
+// Payloads start on a 64 KB boundary so the bulk of an erase is block-sized.
+// Each one is sector-aligned within that, so animations can sit next to each
+// other without one erase destroying its neighbour.
 constexpr uint32_t LS_PAYLOAD_OFFSET = LS_FLASH_BLOCK;
 
-// "LPS2" — bumped from the upload header's magic because this is a different
-// structure with a different lifetime, and confusing the two would mean playing
-// noise.
-constexpr uint32_t LS_RECORD_MAGIC = 0x3253504C;
+// "LPS3" — the directory replaced the single record, so an old stick's flash
+// must not be mistaken for a new one's.
+constexpr uint32_t LS_DIR_MAGIC = 0x3353504C;
+constexpr uint8_t LS_DIR_VERSION = 1;
 
 // Hard ceiling on a single transfer, however steadily bytes arrive. The idle
 // timeout above only fires when they stop; a slow trickle could hold RECEIVING

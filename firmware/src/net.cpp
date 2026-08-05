@@ -8,6 +8,8 @@
 #include <WiFiMulti.h>
 #include <WebSocketsClient.h>
 
+#include "animation.h"
+
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -87,6 +89,12 @@ void forgetHint() {
 }
 uint32_t failedJoins = 0;
 StatusSnapshot lastStatus;
+
+// The last `slots` frame, rebuilt only when the set changes and resent verbatim
+// on every reconnect. A browser that joins after the stick did must still see
+// what is stored, and re-deriving it there would need the whole directory in the
+// status message.
+char slotsJson[1536] = {0};
 
 void writeU16(uint8_t* p, uint16_t v) {
   p[0] = (uint8_t)(v & 0xFF);
@@ -290,6 +298,7 @@ void NetService::onConnected() {
   Serial.printf("[net] relay connected, heap %u\n", (unsigned)ESP.getFreeHeap());
   sendHello();
   publishStatus(lastStatus);
+  if (slotsJson[0]) ws.sendTXT(slotsJson);
 }
 
 void NetService::onDisconnected() {
@@ -339,6 +348,17 @@ void NetService::onText(const uint8_t* payload, size_t len) {
     writeU16(h + HDR_FPS, (uint16_t)(doc["fps"] | 0));
     writeU16(h + HDR_START_DELAY, (uint16_t)(doc["startDelayMs"] | 0));
     writeU32(h + HDR_CRC32, doc["crc32"] | 0u);
+    // Before the control frame, because handling that one is what consumes it.
+    handler_->onName(doc["name"] | "");
+    handler_->onControl(frame, sizeof(frame));
+    return;
+  }
+
+  if (strcmp(t, "select") == 0 || strcmp(t, "deleteSlot") == 0) {
+    const long slot = doc["slot"] | -1L;
+    if (slot < 0 || slot >= LS_MAX_SLOTS) return;
+    const uint8_t frame[2] = {(uint8_t)(strcmp(t, "select") == 0 ? OP_SELECT : OP_DELETE),
+                              (uint8_t)slot};
     handler_->onControl(frame, sizeof(frame));
     return;
   }
@@ -384,6 +404,35 @@ void NetService::publishStatus(const StatusSnapshot& s) {
            (unsigned)s.state, (unsigned)s.error, (unsigned long)s.bytesReceived,
            (unsigned long)s.bytesExpected, (unsigned long)s.maxAnimationBytes);
   ws.sendTXT(buf);
+}
+
+void NetService::publishSlots(const Animation& store) {
+  // Only the used slots. The index travels with each entry, so the browser can
+  // still address a hole in the middle of the set.
+  int n = snprintf(slotsJson, sizeof(slotsJson), "{\"t\":\"slots\",\"selected\":%d,\"slots\":[",
+                   (int)store.selected());
+  bool first = true;
+  for (uint8_t i = 0; i < store.slotCount(); i++) {
+    const Slot& s = store.slot(i);
+    if (!s.used) continue;
+    if (n < 0 || (size_t)n >= sizeof(slotsJson)) break;
+    n += snprintf(slotsJson + n, sizeof(slotsJson) - n,
+                  "%s{\"i\":%u,\"name\":\"%s\",\"frames\":%u,\"fps\":%u,\"bytes\":%lu,"
+                  "\"colour\":[%u,%u,%u]}",
+                  first ? "" : ",", (unsigned)i, s.name, (unsigned)s.frameCount,
+                  (unsigned)s.fps, (unsigned long)s.bytes, (unsigned)s.colour[0],
+                  (unsigned)s.colour[1], (unsigned)s.colour[2]);
+    first = false;
+  }
+  if (n < 0 || (size_t)n + 3 > sizeof(slotsJson)) {
+    // Truncated, so the JSON is not valid. Better to send nothing than a frame
+    // the browser will drop anyway with no explanation.
+    slotsJson[0] = 0;
+    Serial.println("[net] slot list too long to serialise");
+    return;
+  }
+  snprintf(slotsJson + n, sizeof(slotsJson) - n, "]}");
+  if (linked_) ws.sendTXT(slotsJson);
 }
 
 LinkStage NetService::linkStage() const {

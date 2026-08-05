@@ -92,6 +92,18 @@ export function errorMessage(code: number): string {
 
 // --- messages --------------------------------------------------------------
 
+/** One animation stored in the stick's flash (§3.5). */
+export type DeviceSlot = {
+  /** Slot index. Sent explicitly because unused slots are omitted. */
+  i: number
+  name: string
+  frames: number
+  fps: number
+  bytes: number
+  /** Representative RGB, computed on the device while the upload streamed past. */
+  colour: [number, number, number]
+}
+
 /** Everything the device tells us about itself, as the relay presents it. */
 export type DeviceEntry = {
   deviceId: string
@@ -105,11 +117,16 @@ export type DeviceEntry = {
   error: number
   bytesReceived: number
   bytesExpected: number
+  /** Empty until the device has announced its set; it does so right after `hello`. */
+  slots: DeviceSlot[]
+  /** Index of the animation that will play, or -1 when nothing is stored. */
+  selected: number
 }
 
 export type ServerMessage =
   | { t: 'devices'; devices: DeviceEntry[] }
   | ({ t: 'status'; deviceId: string } & DeviceStatusFields)
+  | { t: 'slots'; deviceId: string; selected: number; slots: DeviceSlot[] }
   | { t: 'error'; message: string }
 
 export type DeviceStatusFields = {
@@ -122,6 +139,11 @@ export type DeviceStatusFields = {
 
 /** The animation metadata a `begin` carries. Shared with the BLE header (§4). */
 export type UploadOptions = {
+  /**
+   * What to call this animation in the stick's flash. Trimmed to 15 characters
+   * there, and the only label the on-stick picker has to work with.
+   */
+  name: string
   ledCount: number
   frameCount: number
   fps: number
@@ -142,6 +164,31 @@ const clampState = (v: unknown): DeviceStateValue => {
   return (n >= 0 && n <= 4 ? n : 4) as DeviceStateValue
 }
 
+const byte = (v: unknown): number => {
+  const n = num(v, 0)
+  return n < 0 ? 0 : n > 255 ? 255 : Math.round(n)
+}
+
+function parseSlots(raw: unknown): DeviceSlot[] {
+  if (!Array.isArray(raw)) return []
+  const out: DeviceSlot[] = []
+  for (const item of raw) {
+    if (!isObject(item)) continue
+    const i = num(item.i, -1)
+    if (!Number.isInteger(i) || i < 0) continue
+    const colour = Array.isArray(item.colour) ? item.colour : []
+    out.push({
+      i,
+      name: typeof item.name === 'string' && item.name ? item.name : `Slot ${i + 1}`,
+      frames: num(item.frames, 0),
+      fps: num(item.fps, 0),
+      bytes: num(item.bytes, 0),
+      colour: [byte(colour[0]), byte(colour[1]), byte(colour[2])],
+    })
+  }
+  return out
+}
+
 function parseEntry(raw: unknown): DeviceEntry | null {
   if (!isObject(raw) || typeof raw.deviceId !== 'string') return null
   return {
@@ -156,6 +203,8 @@ function parseEntry(raw: unknown): DeviceEntry | null {
     error: num(raw.error, 0),
     bytesReceived: num(raw.bytesReceived, 0),
     bytesExpected: num(raw.bytesExpected, 0),
+    slots: parseSlots(raw.slots),
+    selected: num(raw.selected, -1),
   }
 }
 
@@ -186,6 +235,14 @@ export function parseServerMessage(text: string): ServerMessage | null {
       bytesReceived: num(parsed.bytesReceived, 0),
       bytesExpected: num(parsed.bytesExpected, 0),
       maxAnimationBytes: num(parsed.maxAnimationBytes, 0),
+    }
+  }
+  if (parsed.t === 'slots' && typeof parsed.deviceId === 'string') {
+    return {
+      t: 'slots',
+      deviceId: parsed.deviceId,
+      selected: num(parsed.selected, -1),
+      slots: parseSlots(parsed.slots),
     }
   }
   if (parsed.t === 'error' && typeof parsed.message === 'string') {

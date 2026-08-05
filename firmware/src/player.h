@@ -44,6 +44,20 @@ class Player {
   void identify();
   bool identifying() const { return identifyUntilMs_ != 0; }
 
+  /**
+   * Draws the animation picker: one dim LED per stored slot in its own colour
+   * with `highlight` at full, a dark gap, then slot `highlight` previewing
+   * across the rest of the strip.
+   *
+   * The preview is what actually identifies an animation — a single colour
+   * cannot — so it gets the bulk of the strip.
+   *
+   * `highlight` is the slot being pointed at, which is not yet the selected one:
+   * committing it costs a CRC pass over the whole payload and a directory write,
+   * and doing that on every step made stepping through the set slow.
+   */
+  void showPicker(const Animation& store, int8_t highlight, uint16_t frame);
+
   // Dim single-LED state indicator; no-op when STATUS_LED_ENABLED is 0 or while
   // exposing. Anything short of LS_LINK_UP gets its own colour, because in the
   // dark the LED is usually the only diagnostic available (§4.4).

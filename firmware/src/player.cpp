@@ -150,6 +150,41 @@ void Player::blank() {
   FastLED.show();
 }
 
+void Player::showPicker(const Animation& store, int8_t highlight, uint16_t frame) {
+  fill_solid(leds, LED_COUNT, CRGB::Black);
+
+  const uint8_t slots = store.slotCount();
+  for (uint8_t i = 0; i < slots && i < LED_COUNT; i++) {
+    const Slot& s = store.slot(i);
+    if (!s.used) continue;
+    // The highlighted one at full, the rest held back far enough to be obviously
+    // secondary without disappearing.
+    const uint8_t scale = (int8_t)i == highlight ? 255 : 77;
+    leds[i] = CRGB((s.colour[0] * scale) / 255, (s.colour[1] * scale) / 255,
+                   (s.colour[2] * scale) / 255);
+  }
+
+  const uint16_t previewAt = slots + LS_PICKER_GAP;
+  const int8_t sel = highlight;
+  if (sel >= 0 && sel < (int8_t)slots && previewAt < LED_COUNT) {
+    const uint16_t width = LED_COUNT - previewAt;
+    const Slot& s = store.slot((uint8_t)sel);
+    if (s.used && s.frameCount > 0 && store.readFrameOf((uint8_t)sel, frame % s.frameCount,
+                                                        frame_)) {
+      // The animation is LED_COUNT wide and the preview is narrower, so it is
+      // sampled rather than copied.
+      for (uint16_t x = 0; x < width; x++) {
+        const uint16_t src = (uint32_t)x * (LED_COUNT - 1) / (width > 1 ? width - 1 : 1);
+        leds[previewAt + x] =
+            CRGB(frame_[src * 3], frame_[src * 3 + 1], frame_[src * 3 + 2]);
+      }
+    }
+  }
+
+  FastLED.setBrightness(brightness_);
+  FastLED.show();
+}
+
 void Player::showStatusLed(DeviceState state, LinkStage link) {
 #if STATUS_LED_ENABLED
   // Must never be lit while the shutter could be open (§4.4).

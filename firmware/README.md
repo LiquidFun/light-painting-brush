@@ -57,8 +57,11 @@ that must *not* reset the board.
 | `5V` | strip `+5V` (both fed from the power bank, not through USB data) |
 | `GPIO 0` | on-board **BOOT** button — no external part needed |
 
-Pressing BOOT plays the loaded animation, and pressing it again during playback
-stops it.
+Pressing BOOT plays the selected animation, and pressing it again during playback
+stops it. **Holding** it for ~0.7 s opens the animation picker: one LED per stored
+animation lights up at the base of the strip in that animation's own colour, ten
+LEDs stay dark, and the highlighted animation previews across the rest. Short
+presses step through them; another hold confirms and closes.
 
 Keep the strip's 5 V and ground going straight to the power rail, and tie all
 grounds together. Data is 3.3 V into a 5 V strip, which is out of spec and works
@@ -114,7 +117,7 @@ While idle, LED 0 alone is lit dim (brightness 8):
 | orange | on WiFi, but the relay is not answering | relay host, TLS, Basic auth credentials, is the server up |
 | blue | idle — nothing stored | upload something |
 | cyan | receiving an upload | if it stays here, press BOOT to abandon it |
-| green | animation stored and verified, ready to play | — |
+| green | an animation is selected and verified, ready to play | — |
 | red | error | serial log for the code |
 
 **Blue after a reboot means the flash is empty.** A stick with a stored animation
@@ -175,10 +178,16 @@ socket does **not** stop playback, by design (§3.2).
 playing it through a dropped socket, and the BOOT button still triggers. Only a
 partial transfer is abandoned.
 
-**The animation is stored in flash and survives a power cycle.** The stick comes
-up `READY` with the last upload still loaded, so a battery swap does not cost a
-re-upload. Its CRC is verified at boot before it is trusted; a failure logs and
-leaves the stick `IDLE`.
+**Animations are stored in flash and survive a power cycle.** Up to twelve at
+once, so a battery swap costs no re-upload and a shoot needs no phone. The stick
+comes up `READY` with whichever was last selected. Its CRC is verified when it is
+selected rather than at boot — verifying all twelve would read the whole
+partition — and a failure drops that slot and logs.
+
+An upload lands at a write cursor and wraps, evicting whatever it overlaps, so
+one long animation can still take the whole partition. Nothing is lost by a
+failed transfer except the slots its bytes happened to land on: the directory
+releases those before the first byte is written.
 
 **Repartitioning wipes it.** Changing `partitions_lightstick.csv` needs
 `pio run -t erase` and a fresh upload. Flash wear is not worth worrying about:

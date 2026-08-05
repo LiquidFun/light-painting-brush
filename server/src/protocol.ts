@@ -22,6 +22,10 @@ export const CLIENT_COMMANDS = [
   'clear',
   'identify',
   'brightness',
+  // The stick holds several animations, so choosing one and dropping one are
+  // commands in their own right (§3.4).
+  'select',
+  'deleteSlot',
 ] as const
 
 export type ClientCommand = (typeof CLIENT_COMMANDS)[number]
@@ -45,6 +49,25 @@ export type DeviceStatus = {
   maxAnimationBytes: number
 }
 
+/** One animation stored in the stick's flash. */
+export type DeviceSlot = {
+  /** Slot index. Sent explicitly because unused slots are omitted. */
+  i: number
+  name: string
+  frames: number
+  fps: number
+  bytes: number
+  /** Representative RGB, computed on the device while the upload streamed past. */
+  colour: [number, number, number]
+}
+
+export type DeviceSlots = {
+  t: 'slots'
+  /** Index of the animation that will play, or -1 when nothing is stored. */
+  selected: number
+  slots: DeviceSlot[]
+}
+
 /** A `hello` payload plus presence and the last status the device reported. */
 export type DeviceEntry = {
   deviceId: string
@@ -58,6 +81,9 @@ export type DeviceEntry = {
   error: number
   bytesReceived: number
   bytesExpected: number
+  /** Empty until the device has announced its set; it does so right after `hello`. */
+  slots: DeviceSlot[]
+  selected: number
 }
 
 export const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -95,6 +121,42 @@ export function parseHello(msg: Record<string, unknown>): DeviceHello | null {
     ledCount: num(msg.ledCount, 0),
     maxAnimationBytes: num(msg.maxAnimationBytes, 0),
     fw: str(msg.fw, 'unknown'),
+  }
+}
+
+const MAX_SLOTS = 32
+
+const byte = (v: unknown): number => {
+  const n = num(v, 0)
+  return n < 0 ? 0 : n > 255 ? 255 : Math.round(n)
+}
+
+/**
+ * The device's own view of its flash. Clamped rather than trusted: it is echoed
+ * to every browser, and a name is rendered as text there.
+ */
+export function parseSlots(msg: Record<string, unknown>): DeviceSlots {
+  const raw = Array.isArray(msg.slots) ? msg.slots.slice(0, MAX_SLOTS) : []
+  const slots: DeviceSlot[] = []
+  for (const item of raw) {
+    if (!isObject(item)) continue
+    const i = num(item.i, -1)
+    if (!Number.isInteger(i) || i < 0 || i >= MAX_SLOTS) continue
+    const colour = Array.isArray(item.colour) ? item.colour : []
+    slots.push({
+      i,
+      name: str(item.name, `Slot ${i + 1}`),
+      frames: num(item.frames, 0),
+      fps: num(item.fps, 0),
+      bytes: num(item.bytes, 0),
+      colour: [byte(colour[0]), byte(colour[1]), byte(colour[2])],
+    })
+  }
+  const selected = num(msg.selected, -1)
+  return {
+    t: 'slots',
+    selected: slots.some((s) => s.i === selected) ? selected : -1,
+    slots,
   }
 }
 

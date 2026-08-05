@@ -180,6 +180,50 @@ device.send(
 const status = await statusAtClient
 ok('status broadcast carries deviceId', status.deviceId === 'lightstick-aabbccddeeff' && status.state === 2)
 
+// --- the stored set ---------------------------------------------------------
+const slotsAtClient = next(client, (m) => m.t === 'slots')
+device.send(
+  JSON.stringify({
+    t: 'slots',
+    selected: 1,
+    slots: [
+      { i: 0, name: 'Wings', frames: 125, fps: 60, bytes: 54000, colour: [255, 0, 0] },
+      { i: 1, name: 'Sp"ike\\', frames: 60, fps: 25, bytes: 25920, colour: [0, 300, -4] },
+    ],
+  }),
+)
+const slots = await slotsAtClient
+ok('slots broadcast carries deviceId', slots.deviceId === 'lightstick-aabbccddeeff')
+ok('slots are relayed in order', slots.slots.map((s: any) => s.i).join() === '0,1')
+ok('colours are clamped to bytes', slots.slots[1].colour.join() === '0,255,0')
+ok('selected must name a slot that exists', slots.selected === 1)
+
+// A selection pointing at nothing is worse than no selection: the browser would
+// highlight a row that is not there.
+const strayedAtClient = next(client, (m) => m.t === 'slots' && m.selected === -1)
+device.send(JSON.stringify({ t: 'slots', selected: 7, slots: [] }))
+await strayedAtClient
+ok('a selection with no matching slot becomes -1', true)
+device.send(
+  JSON.stringify({
+    t: 'slots',
+    selected: 1,
+    slots: [
+      { i: 0, name: 'Wings', frames: 125, fps: 60, bytes: 54000, colour: [255, 0, 0] },
+      { i: 1, name: 'Spike', frames: 60, fps: 25, bytes: 25920, colour: [0, 255, 0] },
+    ],
+  }),
+)
+await next(client, (m) => m.t === 'slots' && m.selected === 1)
+
+// select / deleteSlot reach the device
+const selectAtDevice = next(device, (m) => m.t === 'select')
+client.send(JSON.stringify({ t: 'select', deviceId: 'lightstick-aabbccddeeff', slot: 0 }))
+ok('select is forwarded', (await selectAtDevice).slot === 0)
+const deleteAtDevice = next(device, (m) => m.t === 'deleteSlot')
+client.send(JSON.stringify({ t: 'deleteSlot', deviceId: 'lightstick-aabbccddeeff', slot: 1 }))
+ok('deleteSlot is forwarded', (await deleteAtDevice).slot === 1)
+
 // command to an unknown device
 const unknownError = next(client, (m) => m.t === 'error')
 client.send(JSON.stringify({ t: 'play', deviceId: 'nope' }))
@@ -188,8 +232,14 @@ ok('play to unknown device errors', typeof (await unknownError).message === 'str
 // device disconnect
 const offline = next(client, (m) => m.t === 'devices' && m.devices[0]?.online === false)
 device.close()
-await offline
+const wentOffline = await offline
 ok('offline device stays in the list', true)
+// Folded into the entry, so a browser that connects later does not have to ask
+// the stick to repeat itself.
+ok(
+  'the device entry carries the stored set',
+  wentOffline.devices[0].slots.length === 2 && wentOffline.devices[0].selected === 1,
+)
 
 // --- the browser's parser against the server's real output -------------------
 const parsed = clientRaw.map(parseServerMessage)
@@ -210,6 +260,15 @@ ok(
     parsedStatus.deviceId === 'lightstick-aabbccddeeff' &&
     parsedStatus.state === 2 &&
     parsedStatus.maxAnimationBytes === 190000,
+)
+const parsedSlots = parsed.find((m) => m?.t === 'slots' && m.slots.length === 2)
+ok(
+  'browser reads the slot list',
+  parsedSlots?.t === 'slots' &&
+    parsedSlots.selected === 1 &&
+    parsedSlots.slots[0].name === 'Wings' &&
+    parsedSlots.slots[0].frames === 125 &&
+    parsedSlots.slots[1].colour.join() === '0,255,0',
 )
 ok('browser drops unknown frames', parseServerMessage('{"t":"future"}') === null)
 ok('browser drops malformed frames', parseServerMessage('not json') === null)
@@ -251,6 +310,9 @@ ok(
   const entry = back.devices.find((d: any) => d.deviceId === 'lightstick-stuck')
   ok('a reconnecting device does not keep a stale RECEIVING', entry.state === 0, `state ${entry.state}`)
   ok('and its byte counters are cleared', entry.bytesReceived === 0 && entry.bytesExpected === 0)
+  // The flash may have been reflashed while it was away, so the set is not
+  // remembered either. The device republishes it right after `hello`.
+  ok('and the stored set is not remembered', entry.slots.length === 0 && entry.selected === -1)
   dev3.close()
 }
 

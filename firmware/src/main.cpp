@@ -7,6 +7,9 @@
 //
 // Which link delivers them sits behind Transport, so nothing below this line
 // knows whether it is talking to the WiFi relay or the legacy BLE service.
+//
+// The stick holds several animations and can pick between them from the button
+// alone, so a shoot needs no phone once they are loaded.
 
 #include <Arduino.h>
 
@@ -41,6 +44,7 @@ volatile bool pendingValid = false;
 uint8_t pendingOp = 0;
 uint8_t pendingPayload[LS_HEADER_SIZE];
 size_t pendingLen = 0;
+char pendingName[LS_SLOT_NAME] = {0};
 
 // Set by the Data callback when a progress/completion notification is due.
 volatile bool statusDue = false;
@@ -52,8 +56,22 @@ volatile uint32_t lastDataMs = 0;
 // When the current playback started, for bounding the radio-quiet window.
 uint32_t playStartedMs = 0;
 
+// Animation::revision() as last published. The sentinel forces one publish at
+// boot, so a stick that comes up with a full directory still announces it.
+uint32_t lastSlotRevision = 0xFFFFFFFFu;
+
 uint32_t lastButtonMs = 0;
 bool lastButtonLevel = HIGH;
+uint32_t buttonDownMs = 0;
+bool longPressFired = false;
+
+// The animation picker, driven entirely from the button. Playback stops while it
+// is open and the strip belongs to it.
+bool picking = false;
+uint32_t pickerFrameMs = 0;
+uint16_t pickerFrame = 0;
+/** The slot being pointed at. Only committed when the choice is confirmed. */
+int8_t pickIndex = -1;
 
 DeviceState ledShown = STATE_IDLE;
 LinkStage ledLink = LS_LINK_DOWN;
@@ -99,6 +117,9 @@ void setState(DeviceState next, ErrorCode err = LS_ERR_NONE) {
   publish();
 }
 
+/** READY when something is stored and playable, IDLE when the set is empty. */
+void settle() { setState(animation.loaded() ? STATE_READY : STATE_IDLE, lastError); }
+
 // An opcode that makes no sense right now (§2.6 0x06). Reported as a one-off
 // ERROR status; the real state is left intact so a loaded animation survives.
 void reportBadState(uint8_t op) {
@@ -116,8 +137,9 @@ void startPlayback() {
     return;
   }
   const AnimationHeader& h = animation.header();
-  Serial.printf("[play] %u frames @ %u fps, delay %u ms, loop=%d pingPong=%d\n",
-                h.frameCount, h.fps, h.startDelayMs, h.loop(), h.pingPong());
+  Serial.printf("[play] slot %d, %u frames @ %u fps, delay %u ms, loop=%d pingPong=%d\n",
+                (int)animation.selected(), h.frameCount, h.fps, h.startDelayMs, h.loop(),
+                h.pingPong());
   player.play(&animation);  // restarts from frame 0 if already playing (§3.1)
   playStartedMs = millis();
   setState(STATE_PLAYING);
@@ -125,24 +147,26 @@ void startPlayback() {
 
 // An upload is always accepted, from any state. There is no lock and no
 // ownership (§3.7): a second person's upload cancels whatever is in progress,
-// and refusing during playback only meant a wasted trip back to the phone —
-// nobody uploads mid-exposure by accident, and if they do the shot was already
-// ruined by the interruption rather than by us accepting it.
+// and refusing during playback only meant a wasted trip back to the phone.
+//
+// It cannot destroy the stored set. The new animation is written to space the
+// directory has already released, and only becomes findable once its CRC checks
+// out — so a failed transfer costs nothing but the slots it landed on.
 void handleBeginUpload(const uint8_t* payload, size_t len) {
   player.stop();
+  picking = false;
 
-  ErrorCode err = animation.begin(payload, len);
+  ErrorCode err = animation.begin(payload, len, pendingName);
   if (err != LS_ERR_NONE) {
-    Serial.printf("[upload] rejected, err 0x%02X, maxAlloc %u\n", err,
+    Serial.printf("[upload] rejected, err 0x%02X, capacity %u\n", err,
                   (unsigned)animation.maxAnimationBytes());
-    // Nothing is stored; the old animation's record is already gone (§4.1).
     setState(STATE_ERROR, err);
     return;
   }
 
   const AnimationHeader& h = animation.header();
-  Serial.printf("[upload] begin: %u frames x %u LEDs = %u bytes, chunk %u\n",
-                h.frameCount, h.ledCount, (unsigned)animation.expected(),
+  Serial.printf("[upload] begin '%s': %u frames x %u LEDs = %u bytes, chunk %u\n",
+                pendingName, h.frameCount, h.ledCount, (unsigned)animation.expected(),
                 transport.chunkSize());
   lastProgressNotifyBytes = 0;
   lastDataMs = millis();
@@ -152,14 +176,15 @@ void handleBeginUpload(const uint8_t* payload, size_t len) {
 
 void finishUpload() {
   if (animation.verifyCrc() && animation.finish()) {
-    Serial.printf("[upload] CRC ok, %u bytes stored, heap %u\n",
-                  (unsigned)animation.expected(), (unsigned)ESP.getFreeHeap());
+    Serial.printf("[upload] stored in slot %d, %u of %u slots used, heap %u\n",
+                  (int)animation.selected(), (unsigned)animation.used(),
+                  (unsigned)animation.slotCount(), (unsigned)ESP.getFreeHeap());
     bool autoPlay = animation.header().autoPlay();
     setState(STATE_READY);
     if (autoPlay) startPlayback();
   } else {
     Serial.println("[upload] CRC MISMATCH, discarding");
-    animation.reset();
+    animation.abort();
     setState(STATE_ERROR, LS_ERR_CRC_MISMATCH);
   }
 }
@@ -173,13 +198,14 @@ void handleControl(uint8_t op, const uint8_t* payload, size_t len) {
       break;
 
     case OP_PLAY:
+      picking = false;
       startPlayback();
       break;
 
     case OP_STOP:
-      // Blank and return to READY with the buffer intact (§3.1).
+      // Blank and return to READY with the animation intact (§3.1).
       player.stop();
-      setState(animation.loaded() ? STATE_READY : STATE_IDLE, lastError);
+      settle();
       break;
 
     case OP_SET_BRIGHTNESS:
@@ -193,20 +219,37 @@ void handleControl(uint8_t op, const uint8_t* payload, size_t len) {
       publish();
       break;
 
-    case OP_CLEAR:
+    case OP_SELECT:
+      if (len < 1 || !animation.select((int8_t)payload[0])) {
+        reportBadState(op);
+        break;
+      }
       player.stop();
-      animation.reset();
-      setState(STATE_IDLE);
+      picking = false;
+      settle();
+      break;
+
+    case OP_DELETE:
+      if (len < 1 || !animation.remove(payload[0])) {
+        reportBadState(op);
+        break;
+      }
+      player.stop();
+      // The picker may have been pointing at the slot that just went away.
+      picking = false;
+      settle();
+      break;
+
+    case OP_CLEAR:
+      // Drops the selected animation, not the whole set.
+      player.stop();
+      if (animation.selected() >= 0) animation.remove((uint8_t)animation.selected());
+      picking = false;
+      settle();
       break;
 
     case OP_IDENTIFY:
-      if (state == STATE_RECEIVING) {
-      // The one control you have in a field. It did nothing here, which is what
-      // made a stuck transfer feel like a dead stick.
-      Serial.println("[button] abandoning the transfer");
-      animation.reset();
-      setState(STATE_IDLE);
-    } else if (player.exposing()) {
+      if (player.exposing()) {
         reportBadState(op);
         break;
       }
@@ -218,8 +261,8 @@ void handleControl(uint8_t op, const uint8_t* payload, size_t len) {
         reportBadState(op);
         break;
       }
-      animation.reset();
-      setState(STATE_IDLE);
+      animation.abort();
+      settle();
       break;
 
     default:
@@ -237,6 +280,17 @@ class Handler : public TransportHandler {
     pendingValid = true;
   }
 
+  // Sanitised here rather than on the way out, so flash never holds a byte that
+  // would have to be escaped again later: the name is echoed back as JSON, and a
+  // quote or a backslash in it would break that frame for every browser.
+  void onName(const char* name) override {
+    size_t n = 0;
+    for (const char* p = name; p && *p && n + 1 < sizeof(pendingName); p++) {
+      if (*p >= 0x20 && *p < 0x7F && *p != '"' && *p != '\\') pendingName[n++] = *p;
+    }
+    pendingName[n] = 0;
+  }
+
   void onData(const uint8_t* data, size_t len) override {
     if (state != STATE_RECEIVING) return;
     lastDataMs = millis();
@@ -252,18 +306,74 @@ class Handler : public TransportHandler {
   }
 
   void onPeerLost() override {
-    // A dropped connection must not disturb a loaded animation or playback in
-    // progress (§2). Only a partial transfer is worth abandoning: the next
-    // connection then starts clean and the client retries from the beginning.
+    // A dropped connection must not disturb a stored animation or playback in
+    // progress (§2). Only a partial transfer is worth abandoning, and doing so
+    // now costs nothing: the stored set was never at risk.
     if (state == STATE_RECEIVING) {
       Serial.println("[upload] aborted by disconnect");
-      animation.reset();
-      setState(STATE_IDLE);
+      animation.abort();
+      settle();
     }
   }
 };
 
 Handler handler;
+
+/** Confirms the picker's choice, or opens it. Fired while the button is held. */
+void onLongPress() {
+  if (picking) {
+    picking = false;
+    // The commit: a CRC pass over the payload and a directory write, so it
+    // happens once per visit to the picker rather than once per step.
+    if (pickIndex >= 0 && pickIndex != animation.selected()) animation.select(pickIndex);
+    Serial.printf("[picker] chose slot %d\n", (int)animation.selected());
+    ledValid = false;
+    settle();
+    return;
+  }
+  if (animation.used() == 0) {
+    Serial.println("[picker] nothing stored");
+    return;
+  }
+  picking = true;
+  pickerFrame = 0;
+  pickIndex = animation.selected() >= 0 ? animation.selected() : animation.nextUsed(-1);
+  player.stop();
+  Serial.printf("[picker] open, %u stored, on slot %d\n", (unsigned)animation.used(),
+                (int)pickIndex);
+}
+
+void onShortPress() {
+  ledBlackoutAfterShot = false;
+
+  if (picking) {
+    const int8_t next = animation.nextUsed(pickIndex);
+    if (next >= 0) pickIndex = next;
+    pickerFrame = 0;
+    return;
+  }
+
+  if (state == STATE_RECEIVING) {
+    // The one control you have in a field, and it used to do nothing here —
+    // which is what made a stuck transfer feel like a dead stick.
+    Serial.println("[button] abandoning the transfer");
+    animation.abort();
+    settle();
+    return;
+  }
+
+  if (player.exposing()) {
+    // Toggle, so the one button both starts a shot and aborts one. Restarting
+    // from frame 0 instead — which is what `play` does — is useless here: your
+    // hand is on the stick, so a restart just smears the exposure.
+    Serial.println("[button] stop");
+    player.stop();
+    settle();
+    return;
+  }
+
+  if (animation.loaded()) startPlayback();
+}
 
 void pollButton() {
   // GPIO 0 is the on-board BOOT button, active low with INPUT_PULLUP.
@@ -272,29 +382,36 @@ void pollButton() {
   // comes up in serial bootloader mode instead of running this sketch. That is
   // harmless, but it looks exactly like a dead board — just release the button
   // and reset. See firmware/README.md.
-  bool level = digitalRead(BUTTON_PIN);
-  uint32_t now = millis();
-  if (lastButtonLevel == HIGH && level == LOW &&
-      now - lastButtonMs >= LS_BUTTON_DEBOUNCE_MS) {
-    lastButtonMs = now;
-    Serial.println("[button] press");
-    ledBlackoutAfterShot = false;
-    if (player.exposing()) {
-      // Toggle, so the one button both starts a shot and aborts one. Restarting
-      // from frame 0 instead — which is what `play` does — is useless here:
-      // your hand is on the stick, so a restart just smears the exposure.
-      Serial.println("[button] stop");
-      player.stop();
-      setState(animation.loaded() ? STATE_READY : STATE_IDLE, lastError);
-    } else if (animation.loaded()) {
-      startPlayback();
+  const bool level = digitalRead(BUTTON_PIN);
+  const uint32_t now = millis();
+
+  // buttonDownMs != 0 means a press got past the debounce and is still held. A
+  // bounce leaves it at 0, so the release that follows does nothing rather than
+  // counting as a second press.
+  if (lastButtonLevel == HIGH && level == LOW) {
+    if (now - lastButtonMs >= LS_BUTTON_DEBOUNCE_MS) {
+      lastButtonMs = now;
+      buttonDownMs = now;
+      longPressFired = false;
     }
+  } else if (lastButtonLevel == LOW && level == HIGH) {
+    if (buttonDownMs != 0 && !longPressFired) onShortPress();
+    buttonDownMs = 0;
+  } else if (level == LOW && buttonDownMs != 0 && !longPressFired &&
+             now - buttonDownMs >= LS_LONG_PRESS_MS) {
+    // Fired while still held rather than on release, so the picker opens under
+    // your thumb instead of after you let go.
+    longPressFired = true;
+    onLongPress();
   }
+
   lastButtonLevel = level;
 }
 
 void updateStatusLed() {
-  bool canShow = !player.exposing() && !player.identifying() && !ledBlackoutAfterShot;
+  // The picker owns the whole strip while it is open.
+  bool canShow =
+      !player.exposing() && !player.identifying() && !ledBlackoutAfterShot && !picking;
   if (!canShow) {
     ledValid = false;
     return;
@@ -324,11 +441,9 @@ void setup() {
 
   player.begin();
 
-  // Before the transport, so the first status already reports a real ceiling
-  // and a restored animation rather than IDLE with nothing loaded.
-  if (animation.mount() && animation.restore()) {
-    Serial.println("[boot] animation restored from flash, ready to play");
-  }
+  // Before the transport, so the first status already reports a real capacity
+  // and whatever survived the last power cycle.
+  animation.mount();
 
   transport.begin(&handler);
 
@@ -352,6 +467,14 @@ void loop() {
     handleControl(pendingOp, pendingPayload, pendingLen);
   }
 
+  // The set changed — uploaded, selected, deleted or evicted. Watching the
+  // revision rather than calling publishSlots from each of those places means a
+  // new way to mutate the directory cannot silently stop updating the browser.
+  if (animation.revision() != lastSlotRevision) {
+    lastSlotRevision = animation.revision();
+    transport.publishSlots(animation);
+  }
+
   if (statusDue) {
     statusDue = false;
     lastProgressNotifyBytes = animation.received();
@@ -367,7 +490,7 @@ void loop() {
       finishUpload();
     } else if (millis() - lastDataMs > LS_TRANSFER_TIMEOUT_MS) {
       Serial.println("[upload] timeout: no data");
-      animation.reset();
+      animation.abort();
       setState(STATE_ERROR, LS_ERR_TIMEOUT);
     } else if (millis() - receiveStartedMs > LS_TRANSFER_MAX_MS) {
       // A trickle keeps lastDataMs fresh forever, and RECEIVING blocks playback
@@ -375,7 +498,7 @@ void loop() {
       Serial.printf("[upload] timeout: %u of %u bytes after %u ms\n",
                     (unsigned)animation.received(), (unsigned)animation.expected(),
                     (unsigned)(millis() - receiveStartedMs));
-      animation.reset();
+      animation.abort();
       setState(STATE_ERROR, LS_ERR_TIMEOUT);
     }
   }
@@ -396,5 +519,14 @@ void loop() {
   }
 
   pollButton();
+
+  if (picking) {
+    if (millis() - pickerFrameMs >= 1000 / LS_PICKER_FPS) {
+      pickerFrameMs = millis();
+      player.showPicker(animation, pickIndex, pickerFrame++);
+    }
+    return;
+  }
+
   updateStatusLed();
 }

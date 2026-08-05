@@ -11,7 +11,7 @@
 import { describeOverBudget, formatBytes, formatSeconds, payloadBytes } from '../model/project'
 import type { Project } from '../model/types'
 import { DeviceState, stateLabel } from '../transport/protocol'
-import type { DeviceEntry } from '../transport/protocol'
+import type { DeviceEntry, DeviceSlot } from '../transport/protocol'
 import type { Transport } from '../transport/types'
 import { Button, Field, Panel, Row, Slider, Stat, Toggle } from './primitives'
 
@@ -59,6 +59,62 @@ function DeviceRow({
             device.online ? 'bg-fg' : 'border border-line-strong',
           ].join(' ')}
         />
+      </button>
+    </li>
+  )
+}
+
+/**
+ * One animation in the stick's flash. The colour swatch is the device's own
+ * average, which is also what its LED shows in the on-stick picker — so the two
+ * views of the same set look alike.
+ */
+function SlotRow({
+  slot,
+  active,
+  onSelect,
+  onDelete,
+}: {
+  slot: DeviceSlot
+  active: boolean
+  onSelect: () => void
+  onDelete: () => void
+}) {
+  const durationMs = slot.fps > 0 ? (slot.frames / slot.fps) * 1000 : 0
+  return (
+    <li className="flex items-stretch gap-1">
+      <button
+        type="button"
+        aria-pressed={active}
+        onClick={onSelect}
+        className={[
+          'flex min-h-11 flex-1 items-center gap-3 rounded border px-3 py-2 text-left',
+          active
+            ? 'border-fg bg-raised text-fg'
+            : 'border-line bg-panel text-dim active:bg-raised',
+        ].join(' ')}
+      >
+        <span
+          aria-hidden
+          className="size-3 shrink-0 rounded-full border border-line"
+          style={{ background: `rgb(${slot.colour[0]}, ${slot.colour[1]}, ${slot.colour[2]})` }}
+        />
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium">{slot.name}</span>
+          <span className="num block truncate text-xs text-mute">
+            {slot.frames} frames · {slot.fps} fps · {formatSeconds(durationMs)} ·{' '}
+            {formatBytes(slot.bytes)}
+          </span>
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-label={`Delete ${slot.name}`}
+        title={`Delete ${slot.name}`}
+        onClick={onDelete}
+        className="min-h-11 w-11 shrink-0 rounded border border-line bg-panel text-dim active:bg-raised"
+      >
+        ✕
       </button>
     </li>
   )
@@ -150,6 +206,38 @@ export function DevicePanel({
           </select>
         </Field>
       </Panel>
+
+      {/* Only the relay can express a set; v1 held one animation in RAM. */}
+      {transport.selectSlot && transport.deleteSlot && ready && target && (
+        <Panel title="On the stick">
+          {target.slots.length === 0 ? (
+            <p className="text-sm text-dim">
+              Nothing stored yet. Uploads land here and stay through a power cycle.
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {target.slots.map((slot) => (
+                <SlotRow
+                  key={slot.i}
+                  slot={slot}
+                  active={slot.i === target.selected}
+                  onSelect={() => transport.selectSlot?.(slot.i)}
+                  onDelete={() => {
+                    if (window.confirm(`Delete “${slot.name}” from the stick?`)) {
+                      transport.deleteSlot?.(slot.i)
+                    }
+                  }}
+                />
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-mute">
+            Play starts whichever is selected. You can also pick one without a phone:
+            hold BOOT on the stick to open its picker, tap to step through, hold again
+            to confirm.
+          </p>
+        </Panel>
+      )}
 
       <Panel title="Upload">
         <div className="grid grid-cols-2 gap-3">
@@ -284,9 +372,9 @@ export function DevicePanel({
 
         <p className="text-xs text-mute">
           Trigger from here, or press the BOOT button on the stick — a press during
-          playback stops it. The stick keeps one animation in flash and still has it
-          after a power cycle, so a battery swap does not cost a re-upload. At{' '}
-          {project.fps} fps this animation runs for {formatSeconds(project.durationMs)}.
+          playback stops it. Uploads are kept in flash, several at a time, so a battery
+          swap does not cost a re-upload and a shoot needs no phone. At {project.fps} fps
+          this animation runs for {formatSeconds(project.durationMs)}.
         </p>
       </Panel>
     </>

@@ -36,6 +36,9 @@ function entryOf(name: string | undefined, status: Status | null): DeviceEntry {
     error: status?.errorCode ?? 0,
     bytesReceived: status?.bytesReceived ?? 0,
     bytesExpected: status?.bytesExpected ?? 0,
+    // v1 held exactly one animation, in RAM, and had no way to describe it.
+    slots: [],
+    selected: -1,
   }
 }
 
@@ -140,6 +143,8 @@ export function useDevice(): Transport {
     stop: () => run(() => client.stop()),
     clear: () => run(() => client.clear()),
     identify: () => run(() => client.identify()),
+    selectSlot: null,
+    deleteSlot: null,
     pair,
     unpair: () => client.disconnect(),
   }

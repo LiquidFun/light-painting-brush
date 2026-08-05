@@ -115,6 +115,15 @@ export class RelayClient {
     this.send({ t: 'identify', deviceId })
   }
 
+  /** Makes a stored animation the one that plays. The device verifies its CRC first. */
+  selectSlot(deviceId: string, slot: number): void {
+    this.send({ t: 'select', deviceId, slot })
+  }
+
+  deleteSlot(deviceId: string, slot: number): void {
+    this.send({ t: 'deleteSlot', deviceId, slot })
+  }
+
   setBrightness(deviceId: string, value: number): void {
     this.send({
       t: 'brightness',
@@ -279,6 +288,14 @@ export class RelayClient {
 
     if (msg.t === 'error') {
       this.handlers.onError?.(msg.message)
+      return
+    }
+
+    if (msg.t === 'slots') {
+      this.devices = this.devices.map((d) =>
+        d.deviceId === msg.deviceId ? { ...d, slots: msg.slots, selected: msg.selected } : d,
+      )
+      this.handlers.onDevices?.(this.devices)
       return
     }
 

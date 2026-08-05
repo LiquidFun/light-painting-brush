@@ -70,22 +70,43 @@ ignored rather than treated as errors, so one side can be ahead of the other.
 |---|---|---|
 | `hello` | `proto`, `deviceId`, `name`, `ledCount`, `maxAnimationBytes`, `fw` | Immediately on connect, before anything else |
 | `status` | `state`, `error`, `bytesReceived`, `bytesExpected`, `maxAnimationBytes` | On every state change, and every ~64 KB while `RECEIVING` |
+| `slots` | `selected`, `slots` | Right after `hello`, and whenever the stored set changes |
 
 `deviceId` is stable across reboots — the ESP32's MAC address formatted as
 `lightstick-xxxxxxxxxxxx`. It is the identity the relay routes on, so it must not
 be random per boot.
+
+Each entry of `slots` is
+`{ i, name, frames, fps, bytes, colour: [r, g, b] }`. `i` is the slot index and
+is sent explicitly, because unused slots are omitted and the set can have holes.
+`colour` is the device's own brightness-weighted average of the payload, computed
+as the upload streamed past; it is what that slot's LED shows in the on-stick
+picker. `selected` is the index that `play` will start, or `-1` when nothing is
+stored.
+
+`slots` is a separate message rather than fields on `status` because `status`
+goes out several times a second during an upload and this is a kilobyte.
 
 ### 3.2 Client → server
 
 | `t` | Fields | Meaning |
 |---|---|---|
 | `subscribe` | — | Begin receiving `devices` and `status` |
-| `begin` | `proto`, `deviceId`, `ledCount`, `frameCount`, `fps`, `startDelayMs`, `loop`, `pingPong`, `autoPlay`, `bytes`, `crc32` | Followed by binary frames totalling `bytes` |
-| `play` | `deviceId` | Play the loaded animation |
-| `stop` | `deviceId` | Stop, blank the strip, keep the buffer |
-| `clear` | `deviceId` | Free the buffer, back to `IDLE` |
+| `begin` | `proto`, `deviceId`, `name`, `ledCount`, `frameCount`, `fps`, `startDelayMs`, `loop`, `pingPong`, `autoPlay`, `bytes`, `crc32` | Followed by binary frames totalling `bytes` |
+| `play` | `deviceId` | Play the selected animation |
+| `stop` | `deviceId` | Stop, blank the strip, keep everything stored |
+| `clear` | `deviceId` | Delete the selected animation |
+| `select` | `deviceId`, `slot` | Make that slot the one `play` starts |
+| `deleteSlot` | `deviceId`, `slot` | Delete one stored animation |
 | `identify` | `deviceId` | Flash the strip white briefly, ~200 ms |
 | `brightness` | `deviceId`, `value` (0–255) | Master brightness |
+
+`name` is what the animation is filed under in flash. It is truncated to 15
+characters on the device and is the only label the on-stick picker has.
+
+`select` verifies the slot's CRC before accepting it, so a slot whose payload has
+been overwritten is dropped rather than played. That read costs tens of
+milliseconds per stored megabyte.
 
 A client's binary frames are routed to the device named in its **most recent
 `begin`**. Binary arriving from a client that has not sent `begin` is dropped and
@@ -95,15 +116,24 @@ answered with `error`.
 
 | `t` | Fields | When |
 |---|---|---|
-| `devices` | `devices`: array of `hello` payloads plus `online` and the last known `status` fields | On `subscribe`, and whenever the set or a device's presence changes |
+| `devices` | `devices`: array of `hello` payloads plus `online`, the last known `status` fields, and the last known `slots`/`selected` | On `subscribe`, and whenever the set or a device's presence changes |
 | `status` | `deviceId` plus the device's `status` fields | Broadcast to every subscribed client |
+| `slots` | `deviceId`, `selected`, `slots` | Broadcast to every subscribed client |
 | `error` | `message` | Human-readable, safe to display verbatim |
+
+The stored set appears twice on purpose: as its own message for a browser that is
+already open, and folded into each `devices` entry for one that connects later —
+otherwise a late arrival would have to ask the stick to repeat itself.
+
+A device that reconnects starts with **no** remembered status and **no**
+remembered set. It may have been reflashed while it was away, and a set carried
+over from before a reboot would be a guess.
 
 ### 3.4 Server → device
 
-`begin`, `play`, `stop`, `clear`, `identify` and `brightness` are forwarded
-verbatim, `deviceId` included; the device ignores the field since it can only be
-itself. Binary frames are forwarded as they arrive.
+Everything in §3.2 except `subscribe` is forwarded verbatim, `deviceId` included;
+the device ignores the field since it can only be itself. Binary frames are
+forwarded as they arrive.
 
 The relay **streams**: it never buffers a whole payload. A 460-frame animation is
 200 KB and there may be several clients.
@@ -118,9 +148,9 @@ IDLE ──begin──▶ RECEIVING ──crc ok──▶ READY ──play──
 
 | Code | State | Meaning |
 |---|---|---|
-| `0` | `IDLE` | No animation in RAM |
-| `1` | `RECEIVING` | Buffer allocated, bytes arriving |
-| `2` | `READY` | Animation loaded and CRC-verified |
+| `0` | `IDLE` | Nothing stored |
+| `1` | `RECEIVING` | Space claimed in flash, bytes arriving |
+| `2` | `READY` | An animation is selected and CRC-verified |
 | `3` | `PLAYING` | Frames going to the strip |
 | `4` | `ERROR` | See `error` |
 
@@ -129,16 +159,19 @@ IDLE ──begin──▶ RECEIVING ──crc ok──▶ READY ──play──
 | Code | Meaning |
 |---|---|
 | `0` | none |
-| `1` | out of memory — payload exceeds `maxAnimationBytes` |
+| `1` | out of space — payload exceeds `maxAnimationBytes` |
 | `2` | unsupported protocol version |
 | `3` | CRC mismatch |
 | `4` | `ledCount` mismatch with the firmware build |
 | `5` | transfer timeout — no data for 10 s while `RECEIVING` |
 | `6` | unexpected message for the current state |
 
-Error `6` is reported as a one-off `ERROR` status; the device's real state and any
-loaded animation are left intact. The others leave the device with no animation
-loaded, and the next `begin` or `clear` clears the error.
+Error `6` is reported as a one-off `ERROR` status; the device's real state and the
+stored set are left intact.
+
+No error costs the previously stored animations. A failed transfer only loses the
+slots its bytes happened to land on, which the directory released before the
+first byte was written (§8).
 
 ## 6. Transfer
 
@@ -181,3 +214,40 @@ Served by the same origin, behind the same Basic auth.
 The schema is the versioned export format the editor already uses, so files stay
 interchangeable with local export/import. One shared password means one shared
 library, and last write wins.
+
+## 8. On-device storage
+
+Not strictly wire protocol, but it is what `slots`, `select` and `deleteSlot`
+describe. The implementation is `firmware/src/animation.cpp`.
+
+Animations live in a dedicated 2.44 MB flash partition, up to twelve at once, so
+a shoot needs no phone once they are loaded. Allocation is **append-and-wrap**:
+each upload lands at a write cursor, restarts at the beginning if it will not
+fit before the end, and evicts whatever it overlaps. There is no free list, no
+best fit and no compaction — an animation needing the whole partition evicts
+every other, one needing a tenth evicts only what it lands on. `bytes` in a
+`slots` entry is the payload size, not the space consumed; each animation is
+padded to a 4 KB boundary so a neighbour's erase cannot destroy it.
+
+Uploads are atomic. A directory of the twelve slots is written to two sectors
+alternately, newest sequence number winning, and it is rewritten **before** the
+first payload byte to release the slots about to be overwritten. A power cut, a
+dropped socket or a failed CRC therefore leaves the previous set intact.
+
+### 8.1 The on-stick picker
+
+The BOOT button is the whole interface when there is no phone.
+
+| Gesture | While playing or idle | While the picker is open |
+|---|---|---|
+| Short press | Play, or stop what is playing | Step to the next stored animation |
+| Long press (≥700 ms) | Open the picker | Confirm the highlighted one and close |
+
+With the picker open the strip shows one LED per stored slot at the base, each in
+that slot's `colour` with the highlighted one at full brightness; then ten dark
+LEDs; then the highlighted animation previewing across the rest of the strip. The
+preview is what actually identifies an animation — a single colour cannot.
+
+Stepping only moves the highlight. The choice is committed on the confirming long
+press, because committing costs a CRC pass over the payload and a directory
+write.

@@ -73,6 +73,7 @@ export default function App() {
   const upload = useCallback(async () => {
     const payload = buildPayload(field)
     await transport.upload(payload, {
+      name: project.name,
       ledCount: project.ledCount,
       frameCount: field.height,
       fps: project.fps,

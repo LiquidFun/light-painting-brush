@@ -79,6 +79,13 @@ export function useRelay(enabled: boolean): Transport {
     [selectedId],
   )
 
+  const slotCommand = useCallback(
+    (fn: (deviceId: string, slot: number) => void) => (slot: number) => {
+      if (selectedId) fn(selectedId, slot)
+    },
+    [selectedId],
+  )
+
   const setMasterBrightness = useCallback(
     (value: number) => {
       if (selectedId) client.setBrightness(selectedId, value)
@@ -110,6 +117,8 @@ export function useRelay(enabled: boolean): Transport {
     stop: command((id) => client.stop(id)),
     clear: command((id) => client.clear(id)),
     identify: command((id) => client.identify(id)),
+    selectSlot: slotCommand((id, slot) => client.selectSlot(id, slot)),
+    deleteSlot: slotCommand((id, slot) => client.deleteSlot(id, slot)),
     pair: null,
     unpair: null,
   }

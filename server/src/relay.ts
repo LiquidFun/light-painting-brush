@@ -16,13 +16,21 @@ import {
   DeviceState,
   parseHello,
   parseMessage,
+  parseSlots,
   parseStatus,
 } from './protocol.ts'
-import type { ClientCommand, DeviceEntry, DeviceHello, DeviceStatus } from './protocol.ts'
+import type {
+  ClientCommand,
+  DeviceEntry,
+  DeviceHello,
+  DeviceSlots,
+  DeviceStatus,
+} from './protocol.ts'
 
 type DeviceRecord = {
   hello: DeviceHello
   status: DeviceStatus | null
+  slots: DeviceSlots | null
   socket: WebSocket | null
 }
 
@@ -39,7 +47,7 @@ const isCommand = (t: string): t is ClientCommand =>
 
 /** A device that has gone offline still shows in the list, so the user can see it is gone. */
 function entryOf(record: DeviceRecord): DeviceEntry {
-  const { hello, status } = record
+  const { hello, status, slots } = record
   return {
     deviceId: hello.deviceId,
     name: hello.name,
@@ -52,6 +60,8 @@ function entryOf(record: DeviceRecord): DeviceEntry {
     error: status?.error ?? 0,
     bytesReceived: status?.bytesReceived ?? 0,
     bytesExpected: status?.bytesExpected ?? 0,
+    slots: slots?.slots ?? [],
+    selected: slots?.selected ?? -1,
   }
 }
 
@@ -87,7 +97,10 @@ export class Relay {
         // that made this look like a server bug.
         const existing = this.devices.get(id)
         if (existing?.socket && existing.socket !== socket) existing.socket.close()
-        this.devices.set(id, { hello, status: null, socket })
+        // The stored set goes too. The device republishes it immediately after
+        // `hello`, and a set remembered from before a reboot could be a flash
+        // the user reflashed in between.
+        this.devices.set(id, { hello, status: null, slots: null, socket })
         console.log(`[device] ${id} online (${hello.name}, fw ${hello.fw})`)
         this.broadcastDevices()
         return
@@ -98,6 +111,17 @@ export class Relay {
         if (!record) return
         record.status = parseStatus(msg)
         this.broadcast({ ...record.status, t: 'status', deviceId: id })
+        return
+      }
+
+      if (msg.t === 'slots' && id) {
+        const record = this.devices.get(id)
+        if (!record) return
+        record.slots = parseSlots(msg)
+        // As its own message *and* folded into the device entry: a browser that
+        // is already open wants the update, and one that connects later gets it
+        // from the `devices` list without asking the stick to repeat itself.
+        this.broadcast({ ...record.slots, t: 'slots', deviceId: id })
         return
       }
     })

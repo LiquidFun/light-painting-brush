@@ -51,6 +51,12 @@ export type Transport = {
   clear: () => void
   identify: () => void
   /**
+   * The stick holds several animations. Selecting one makes it the one Play
+   * starts; deleting frees its slot. Null on transports that store only one.
+   */
+  selectSlot: ((index: number) => void) | null
+  deleteSlot: ((index: number) => void) | null
+  /**
    * BLE pairing needs a user gesture, so that transport shows a Connect button.
    * Null on the relay, where devices simply appear.
    */
