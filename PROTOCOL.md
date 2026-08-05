@@ -77,12 +77,26 @@ ignored rather than treated as errors, so one side can be ahead of the other.
 be random per boot.
 
 Each entry of `slots` is
-`{ i, name, frames, fps, bytes, colour: [r, g, b] }`. `i` is the slot index and
-is sent explicitly, because unused slots are omitted and the set can have holes.
-`colour` is the device's own brightness-weighted average of the payload, computed
-as the upload streamed past; it is what that slot's LED shows in the on-stick
-picker. `selected` is the index that `play` will start, or `-1` when nothing is
-stored.
+`{ i, name, frames, fps, bytes, colours: [[r, g, b], ...] }`. `i` is the slot
+index and is sent explicitly, because unused slots are omitted and the set can
+have holes. `selected` is the index that `play` will start, or `-1` when nothing
+is stored.
+
+`colours` holds one average per equal slice of the payload — three of them, so
+start, middle and end — computed on the device as the upload streamed past. One
+average over a whole animation drifts toward mud and made two quite different
+animations look alike; three samples separate a colour cycle from a static wash.
+
+Each average is weighted by **chroma**, not brightness, and then scaled up until
+one channel is full. Weighting by brightness let the pale majority of a frame
+outvote the few saturated pixels that actually characterise it, so everything
+came back near-white; scaling holds the hue and discards the brightness, which is
+what makes a dim animation identifiable. An animation with no chroma anywhere
+reports white, honestly rather than as a fallback.
+
+These are exactly what that slot's LEDs show in the on-stick picker, so the
+browser's swatch and the strip agree. Readers should take the length from the
+array rather than assume three.
 
 `slots` is a separate message rather than fields on `status` because `status`
 goes out several times a second during an upload and this is a kilobyte.
@@ -243,10 +257,19 @@ The BOOT button is the whole interface when there is no phone.
 | Short press | Play, or stop what is playing | Step to the next stored animation |
 | Long press (≥700 ms) | Open the picker | Confirm the highlighted one and close |
 
-With the picker open the strip shows one LED per stored slot at the base, each in
-that slot's `colour` with the highlighted one at full brightness; then ten dark
-LEDs; then the highlighted animation previewing across the rest of the strip. The
-preview is what actually identifies an animation — a single colour cannot.
+With the picker open the strip shows, at the base, one marker per stored
+animation: three LEDs carrying that slot's `colours`, at full brightness for the
+highlighted one and dimmed for the rest, with a single dark LED between markers.
+Then ten dark LEDs, then the highlighted animation previewing across the rest of
+the strip.
+
+Only stored slots get a marker and they are packed together, so counting them
+tells you how many are on the stick. Leaving a hole where a slot is empty made
+the row unreadable, because the hole looks exactly like the separator.
+
+The preview takes whatever the row does not, so a stick holding two animations
+gets a longer one than a stick holding twelve. It is what actually identifies an
+animation — colour alone cannot.
 
 Stepping only moves the highlight. The choice is committed on the confirming long
 press, because committing costs a CRC pass over the payload and a directory

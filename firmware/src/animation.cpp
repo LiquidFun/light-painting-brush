@@ -53,7 +53,7 @@ constexpr size_t DIR_SEQUENCE = 8;  // u32
 constexpr size_t DIR_CURSOR = 12;   // u32
 constexpr size_t DIR_SLOTS = 16;
 
-constexpr size_t SLOT_SIZE = 40;
+constexpr size_t SLOT_SIZE = 48;
 constexpr size_t SL_USED = 0;         // u8
 constexpr size_t SL_FLAGS = 1;        // u8
 constexpr size_t SL_FRAMES = 2;       // u16
@@ -62,8 +62,9 @@ constexpr size_t SL_START_DELAY = 6;  // u16
 constexpr size_t SL_OFFSET = 8;       // u32
 constexpr size_t SL_BYTES = 12;       // u32
 constexpr size_t SL_CRC = 16;         // u32
-constexpr size_t SL_COLOUR = 20;      // u8[3]
-constexpr size_t SL_NAME = 24;        // char[16]
+constexpr size_t SL_COLOUR = 20;      // u8[LS_SLOT_COLOURS][3], then pad to 32
+constexpr size_t SL_NAME = 32;        // char[16]
+static_assert(SL_COLOUR + LS_SLOT_COLOURS * 3 <= SL_NAME, "colours overrun the name");
 
 constexpr size_t DIR_SIZE = DIR_SLOTS + LS_MAX_SLOTS * SLOT_SIZE + 4;  // + self crc
 static_assert(DIR_SIZE <= LS_FLASH_SECTOR, "directory must fit one sector");
@@ -162,7 +163,7 @@ bool Animation::readDirectory() {
       s.offset = readU32(r + SL_OFFSET);
       s.bytes = readU32(r + SL_BYTES);
       s.crc32 = readU32(r + SL_CRC);
-      memcpy(s.colour, r + SL_COLOUR, 3);
+      memcpy(s.colour, r + SL_COLOUR, sizeof(s.colour));
       memcpy(s.name, r + SL_NAME, LS_SLOT_NAME);
       s.name[LS_SLOT_NAME - 1] = 0;
     }
@@ -203,7 +204,7 @@ bool Animation::writeDirectory() {
     writeU32(r + SL_OFFSET, s.offset);
     writeU32(r + SL_BYTES, s.bytes);
     writeU32(r + SL_CRC, s.crc32);
-    memcpy(r + SL_COLOUR, s.colour, 3);
+    memcpy(r + SL_COLOUR, s.colour, sizeof(s.colour));
     memcpy(r + SL_NAME, s.name, LS_SLOT_NAME);
   }
   writeU32(buf + DIR_SIZE - 4, crc32(buf, DIR_SIZE - 4));
@@ -346,8 +347,8 @@ ErrorCode Animation::begin(const uint8_t* header, size_t len, const char* name) 
   received_ = 0;
   running_ = 0xFFFFFFFFu;
   staged_ = 0;
-  colourSum_[0] = colourSum_[1] = colourSum_[2] = 0;
-  colourWeight_ = 0;
+  memset(colourSum_, 0, sizeof(colourSum_));
+  memset(colourWeight_, 0, sizeof(colourWeight_));
   receiving_ = true;
   snprintf(name_, sizeof(name_), "%s", name && name[0] ? name : "Animation");
   return LS_ERR_NONE;
@@ -381,16 +382,34 @@ bool Animation::append(const uint8_t* data, size_t len) {
   if (!receiving_ || received_ + len > expected_) return false;
   running_ = crc32Update(running_, data, len);
 
-  // Representative colour, accumulated as the bytes go past. Weighted by each
-  // pixel's own brightness so mostly-dark frames do not drag it toward grey.
+  // Representative colours, accumulated as the bytes go past. Which sample a
+  // pixel belongs to is its offset in the payload, so the three come out as the
+  // start, the middle and the end of the animation.
+  //
+  // received_ has not been advanced yet, so it is the offset of data[0]. The +1
+  // keeps the divisor non-zero and puts the last pixel in the last bucket rather
+  // than one past it.
+  const uint32_t span = expected_ / LS_SLOT_COLOURS + 1;
   for (size_t i = 0; i + 2 < len; i += 3) {
     const uint8_t r = data[i], g = data[i + 1], b = data[i + 2];
     const uint8_t peak = r > g ? (r > b ? r : b) : (g > b ? g : b);
     if (peak < 24) continue;
-    colourSum_[0] += (uint32_t)r * peak;
-    colourSum_[1] += (uint32_t)g * peak;
-    colourSum_[2] += (uint32_t)b * peak;
-    colourWeight_ += peak;
+    const uint8_t dip = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    // Weighted by chroma, not by brightness.
+    //
+    // Brightness weighting made every animation the same washed-out grey: a
+    // frame is mostly pale or near-white pixels, those carry the most weight,
+    // and the handful of saturated ones that actually characterise the
+    // animation get outvoted. Chroma is how *colourful* a pixel is, so a white
+    // pixel contributes nothing and a vivid one dominates.
+    const uint8_t w = (uint8_t)(peak - dip);
+    if (w == 0) continue;
+    uint32_t k = (received_ + (uint32_t)i) / span;
+    if (k >= LS_SLOT_COLOURS) k = LS_SLOT_COLOURS - 1;
+    colourSum_[k][0] += (uint32_t)r * w;
+    colourSum_[k][1] += (uint32_t)g * w;
+    colourSum_[k][2] += (uint32_t)b * w;
+    colourWeight_[k] += w;
   }
 
   size_t done = 0;
@@ -427,12 +446,33 @@ bool Animation::finish() {
   s.offset = start_;
   s.bytes = expected_;
   s.crc32 = header_.crc32;
-  if (colourWeight_ > 0) {
-    for (uint8_t c = 0; c < 3; c++) {
-      s.colour[c] = (uint8_t)(colourSum_[c] / colourWeight_);
+  int8_t donor = -1;
+  for (uint8_t k = 0; k < LS_SLOT_COLOURS; k++) {
+    if (colourWeight_[k] == 0) continue;
+    uint32_t c[3];
+    for (uint8_t j = 0; j < 3; j++) c[j] = (uint32_t)(colourSum_[k][j] / colourWeight_[k]);
+    // Scaled up until one channel is full. The marker is an identifier, not a
+    // preview: a dim animation still deserves a legible one, and holding the
+    // hue while discarding the brightness is what makes two of them tellable
+    // apart across a dark field.
+    const uint32_t top = c[0] > c[1] ? (c[0] > c[2] ? c[0] : c[2]) : (c[1] > c[2] ? c[1] : c[2]);
+    for (uint8_t j = 0; j < 3; j++) {
+      s.colour[k][j] = top > 0 ? (uint8_t)(c[j] * 255u / top) : 0;
     }
-  } else {
-    s.colour[0] = s.colour[1] = s.colour[2] = 40;
+    if (donor < 0) donor = (int8_t)k;
+  }
+  // A stretch with no colour in it at all — dark, or genuinely white. Borrowing
+  // from a stretch that has some beats showing grey, which would read as a third
+  // kind of animation rather than as "nothing happens here".
+  for (uint8_t k = 0; k < LS_SLOT_COLOURS; k++) {
+    if (colourWeight_[k] > 0) continue;
+    if (donor >= 0) {
+      memcpy(s.colour[k], s.colour[donor], 3);
+    } else {
+      // Nothing anywhere in the payload had any chroma, so white is the honest
+      // answer rather than a fallback.
+      s.colour[k][0] = s.colour[k][1] = s.colour[k][2] = 255;
+    }
   }
   memcpy(s.name, name_, LS_SLOT_NAME);
   s.name[LS_SLOT_NAME - 1] = 0;

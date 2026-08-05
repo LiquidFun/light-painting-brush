@@ -58,10 +58,12 @@ that must *not* reset the board.
 | `GPIO 0` | on-board **BOOT** button — no external part needed |
 
 Pressing BOOT plays the selected animation, and pressing it again during playback
-stops it. **Holding** it for ~0.7 s opens the animation picker: one LED per stored
-animation lights up at the base of the strip in that animation's own colour, ten
-LEDs stay dark, and the highlighted animation previews across the rest. Short
-presses step through them; another hold confirms and closes.
+stops it. **Holding** it for ~0.7 s opens the animation picker: each stored
+animation gets three LEDs at the base of the strip, coloured from the start,
+middle and end of that animation, with one dark LED between them. The highlighted
+one is at full brightness and the rest are dimmed. After a ten-LED gap the
+highlighted animation previews across the rest of the strip. Short presses step
+through them; another hold confirms and closes.
 
 Keep the strip's 5 V and ground going straight to the power rail, and tie all
 grounds together. Data is 3.3 V into a 5 V strip, which is out of spec and works

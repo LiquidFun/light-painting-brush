@@ -65,9 +65,23 @@ function DeviceRow({
 }
 
 /**
- * One animation in the stick's flash. The colour swatch is the device's own
- * average, which is also what its LED shows in the on-stick picker — so the two
- * views of the same set look alike.
+ * Hard-stopped bands rather than a blend, one per sampled colour, so the swatch
+ * is the same picture as the animation's marker on the strip. A gradient would
+ * invent colours the device never reported.
+ */
+function swatch(colours: DeviceSlot['colours']): string {
+  if (colours.length === 0) return 'var(--line)'
+  const step = 100 / colours.length
+  const stops = colours.map(
+    ([r, g, b], k) => `rgb(${r}, ${g}, ${b}) ${k * step}% ${(k + 1) * step}%`,
+  )
+  return `linear-gradient(90deg, ${stops.join(', ')})`
+}
+
+/**
+ * One animation in the stick's flash. The colours are the device's own samples
+ * from across the payload, which is exactly what its picker LEDs show — so the
+ * two views of the same set look alike.
  */
 function SlotRow({
   slot,
@@ -96,8 +110,8 @@ function SlotRow({
       >
         <span
           aria-hidden
-          className="size-3 shrink-0 rounded-full border border-line"
-          style={{ background: `rgb(${slot.colour[0]}, ${slot.colour[1]}, ${slot.colour[2]})` }}
+          className="h-3 w-6 shrink-0 rounded-sm border border-line"
+          style={{ background: swatch(slot.colours) }}
         />
         <span className="min-w-0">
           <span className="block truncate text-sm font-medium">{slot.name}</span>

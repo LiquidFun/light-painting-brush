@@ -45,8 +45,11 @@ struct Slot {
   uint32_t offset = 0;  // partition offset of the payload
   uint32_t bytes = 0;
   uint32_t crc32 = 0;
-  /** Representative colour, for the on-stick picker. Computed while receiving. */
-  uint8_t colour[3] = {0, 0, 0};
+  /**
+   * Representative colours for the on-stick picker, sampled evenly across the
+   * payload and accumulated while receiving. `colour[k]` is RGB.
+   */
+  uint8_t colour[LS_SLOT_COLOURS][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
   char name[LS_SLOT_NAME] = {0};
 
   bool loop() const { return flags & FLAG_LOOP; }
@@ -143,10 +146,11 @@ class Animation {
   uint32_t extentEnd_ = 0;
   uint32_t erasedTo_ = 0;
   uint32_t staged_ = 0;
-  // Colour accumulated over the payload, weighted by each pixel's own
-  // brightness so dark frames do not drag it toward grey.
-  uint64_t colourSum_[3] = {0, 0, 0};
-  uint64_t colourWeight_ = 0;
+  // One accumulator per sample point, weighted by each pixel's chroma so pale
+  // pixels cannot outvote the saturated ones that characterise the animation.
+  // Which one a pixel lands in is decided by its offset in the payload.
+  uint64_t colourSum_[LS_SLOT_COLOURS][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
+  uint64_t colourWeight_[LS_SLOT_COLOURS] = {0, 0, 0};
   char name_[LS_SLOT_NAME] = {0};
   uint8_t stage_[LS_FLASH_SECTOR];
 };

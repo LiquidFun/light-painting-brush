@@ -153,20 +153,30 @@ void Player::blank() {
 void Player::showPicker(const Animation& store, int8_t highlight, uint16_t frame) {
   fill_solid(leds, LED_COUNT, CRGB::Black);
 
-  const uint8_t slots = store.slotCount();
-  for (uint8_t i = 0; i < slots && i < LED_COUNT; i++) {
+  // Used slots only, packed together with a single dark LED between them.
+  // Leaving a hole where a slot is empty made the row unreadable: the hole looks
+  // exactly like the separator, so you cannot count what is stored.
+  uint16_t at = 0;
+  for (uint8_t i = 0; i < store.slotCount(); i++) {
     const Slot& s = store.slot(i);
     if (!s.used) continue;
-    // The highlighted one at full, the rest held back far enough to be obviously
-    // secondary without disappearing.
-    const uint8_t scale = (int8_t)i == highlight ? 255 : 77;
-    leds[i] = CRGB((s.colour[0] * scale) / 255, (s.colour[1] * scale) / 255,
-                   (s.colour[2] * scale) / 255);
+    if (at + LS_SLOT_COLOURS > LED_COUNT) break;
+    // The highlighted one at full, the rest at a tenth. Anything closer and the
+    // row reads as a picture in its own right rather than as one selected
+    // animation among several.
+    const uint8_t scale = (int8_t)i == highlight ? 255 : 26;
+    for (uint8_t k = 0; k < LS_SLOT_COLOURS; k++) {
+      leds[at + k] = CRGB((s.colour[k][0] * scale) / 255, (s.colour[k][1] * scale) / 255,
+                          (s.colour[k][2] * scale) / 255);
+    }
+    at += LS_SLOT_COLOURS + 1;  // one dark LED between animations
   }
 
-  const uint16_t previewAt = slots + LS_PICKER_GAP;
+  // The preview takes whatever the row did not, so a stick holding two
+  // animations gets a longer preview than one holding twelve.
+  const uint16_t previewAt = at + LS_PICKER_GAP;
   const int8_t sel = highlight;
-  if (sel >= 0 && sel < (int8_t)slots && previewAt < LED_COUNT) {
+  if (sel >= 0 && sel < (int8_t)store.slotCount() && previewAt < LED_COUNT) {
     const uint16_t width = LED_COUNT - previewAt;
     const Slot& s = store.slot((uint8_t)sel);
     if (s.used && s.frameCount > 0 && store.readFrameOf((uint8_t)sel, frame % s.frameCount,

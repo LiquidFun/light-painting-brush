@@ -49,6 +49,8 @@ export type DeviceStatus = {
   maxAnimationBytes: number
 }
 
+export type Rgb = [number, number, number]
+
 /** One animation stored in the stick's flash. */
 export type DeviceSlot = {
   /** Slot index. Sent explicitly because unused slots are omitted. */
@@ -57,8 +59,11 @@ export type DeviceSlot = {
   frames: number
   fps: number
   bytes: number
-  /** Representative RGB, computed on the device while the upload streamed past. */
-  colour: [number, number, number]
+  /**
+   * Representative colours sampled evenly across the payload, computed on the
+   * device while the upload streamed past. One per picker LED.
+   */
+  colours: Rgb[]
 }
 
 export type DeviceSlots = {
@@ -125,10 +130,17 @@ export function parseHello(msg: Record<string, unknown>): DeviceHello | null {
 }
 
 const MAX_SLOTS = 32
+/** Enough for a wider picker without letting a device dictate an array length. */
+const MAX_COLOURS = 8
 
 const byte = (v: unknown): number => {
   const n = num(v, 0)
   return n < 0 ? 0 : n > 255 ? 255 : Math.round(n)
+}
+
+const rgb = (v: unknown): Rgb => {
+  const a = Array.isArray(v) ? v : []
+  return [byte(a[0]), byte(a[1]), byte(a[2])]
 }
 
 /**
@@ -142,14 +154,14 @@ export function parseSlots(msg: Record<string, unknown>): DeviceSlots {
     if (!isObject(item)) continue
     const i = num(item.i, -1)
     if (!Number.isInteger(i) || i < 0 || i >= MAX_SLOTS) continue
-    const colour = Array.isArray(item.colour) ? item.colour : []
+    const colours = Array.isArray(item.colours) ? item.colours.slice(0, MAX_COLOURS) : []
     slots.push({
       i,
       name: str(item.name, `Slot ${i + 1}`),
       frames: num(item.frames, 0),
       fps: num(item.fps, 0),
       bytes: num(item.bytes, 0),
-      colour: [byte(colour[0]), byte(colour[1]), byte(colour[2])],
+      colours: colours.map(rgb),
     })
   }
   const selected = num(msg.selected, -1)

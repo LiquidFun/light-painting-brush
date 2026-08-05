@@ -92,6 +92,8 @@ export function errorMessage(code: number): string {
 
 // --- messages --------------------------------------------------------------
 
+export type Rgb = [number, number, number]
+
 /** One animation stored in the stick's flash (§3.5). */
 export type DeviceSlot = {
   /** Slot index. Sent explicitly because unused slots are omitted. */
@@ -100,8 +102,12 @@ export type DeviceSlot = {
   frames: number
   fps: number
   bytes: number
-  /** Representative RGB, computed on the device while the upload streamed past. */
-  colour: [number, number, number]
+  /**
+   * Representative colours sampled evenly across the payload, computed on the
+   * device while the upload streamed past. One per picker LED, so the swatch in
+   * the browser and the marker on the strip show the same thing.
+   */
+  colours: Rgb[]
 }
 
 /** Everything the device tells us about itself, as the relay presents it. */
@@ -169,6 +175,11 @@ const byte = (v: unknown): number => {
   return n < 0 ? 0 : n > 255 ? 255 : Math.round(n)
 }
 
+const rgb = (v: unknown): Rgb => {
+  const a = Array.isArray(v) ? v : []
+  return [byte(a[0]), byte(a[1]), byte(a[2])]
+}
+
 function parseSlots(raw: unknown): DeviceSlot[] {
   if (!Array.isArray(raw)) return []
   const out: DeviceSlot[] = []
@@ -176,14 +187,13 @@ function parseSlots(raw: unknown): DeviceSlot[] {
     if (!isObject(item)) continue
     const i = num(item.i, -1)
     if (!Number.isInteger(i) || i < 0) continue
-    const colour = Array.isArray(item.colour) ? item.colour : []
     out.push({
       i,
       name: typeof item.name === 'string' && item.name ? item.name : `Slot ${i + 1}`,
       frames: num(item.frames, 0),
       fps: num(item.fps, 0),
       bytes: num(item.bytes, 0),
-      colour: [byte(colour[0]), byte(colour[1]), byte(colour[2])],
+      colours: (Array.isArray(item.colours) ? item.colours : []).map(rgb),
     })
   }
   return out

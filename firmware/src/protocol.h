@@ -195,8 +195,17 @@ constexpr uint8_t LS_MAX_SLOTS = 12;
 /** Including the terminator. Long enough to tell two animations apart. */
 constexpr size_t LS_SLOT_NAME = 16;
 
+// Representative colours per animation, sampled evenly across the payload, and
+// one picker LED each.
+//
+// One average over a whole animation drifts toward mud, so two quite different
+// animations came out the same colour and the marker identified nothing. Three
+// samples — start, middle, end — separate a colour cycle from a static wash.
+// They are chroma-weighted and normalised; see Animation::finish.
+constexpr uint8_t LS_SLOT_COLOURS = 3;
+
 // Dark LEDs between the slot markers and the preview, so the two do not read as
-// one picture.
+// one picture. Markers themselves are separated by a single dark LED.
 constexpr uint16_t LS_PICKER_GAP = 10;
 /** Hold BOOT this long to enter or leave the picker. */
 constexpr uint32_t LS_LONG_PRESS_MS = 700;
@@ -217,7 +226,10 @@ constexpr uint32_t LS_PAYLOAD_OFFSET = LS_FLASH_BLOCK;
 // "LPS3" — the directory replaced the single record, so an old stick's flash
 // must not be mistaken for a new one's.
 constexpr uint32_t LS_DIR_MAGIC = 0x3353504C;
-constexpr uint8_t LS_DIR_VERSION = 1;
+// 2: a slot carries LS_SLOT_COLOURS samples instead of one average. A directory
+// written by version 1 is ignored rather than misread, so its animations are
+// unreachable and have to be uploaded again.
+constexpr uint8_t LS_DIR_VERSION = 2;
 
 // Hard ceiling on a single transfer, however steadily bytes arrive. The idle
 // timeout above only fires when they stop; a slow trickle could hold RECEIVING

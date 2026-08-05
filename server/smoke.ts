@@ -187,15 +187,34 @@ device.send(
     t: 'slots',
     selected: 1,
     slots: [
-      { i: 0, name: 'Wings', frames: 125, fps: 60, bytes: 54000, colour: [255, 0, 0] },
-      { i: 1, name: 'Sp"ike\\', frames: 60, fps: 25, bytes: 25920, colour: [0, 300, -4] },
+      {
+        i: 0,
+        name: 'Wings',
+        frames: 125,
+        fps: 60,
+        bytes: 54000,
+        colours: [[255, 0, 0], [200, 40, 0], [120, 90, 0]],
+      },
+      {
+        i: 1,
+        name: 'Sp"ike\\',
+        frames: 60,
+        fps: 25,
+        bytes: 25920,
+        // Out of range, short, and not an array at all: all three come from the
+        // device and all three are rendered in a browser.
+        colours: [[0, 300, -4], [10], 'nope'],
+      },
     ],
   }),
 )
 const slots = await slotsAtClient
 ok('slots broadcast carries deviceId', slots.deviceId === 'lightstick-aabbccddeeff')
 ok('slots are relayed in order', slots.slots.map((s: any) => s.i).join() === '0,1')
-ok('colours are clamped to bytes', slots.slots[1].colour.join() === '0,255,0')
+ok('every sample is relayed', slots.slots[0].colours.length === 3)
+ok('colours are clamped to bytes', slots.slots[1].colours[0].join() === '0,255,0')
+ok('a short colour is padded', slots.slots[1].colours[1].join() === '10,0,0')
+ok('a non-array colour becomes black', slots.slots[1].colours[2].join() === '0,0,0')
 ok('selected must name a slot that exists', slots.selected === 1)
 
 // A selection pointing at nothing is worse than no selection: the browser would
@@ -209,8 +228,8 @@ device.send(
     t: 'slots',
     selected: 1,
     slots: [
-      { i: 0, name: 'Wings', frames: 125, fps: 60, bytes: 54000, colour: [255, 0, 0] },
-      { i: 1, name: 'Spike', frames: 60, fps: 25, bytes: 25920, colour: [0, 255, 0] },
+      { i: 0, name: 'Wings', frames: 125, fps: 60, bytes: 54000, colours: [[255, 0, 0]] },
+      { i: 1, name: 'Spike', frames: 60, fps: 25, bytes: 25920, colours: [[0, 255, 0]] },
     ],
   }),
 )
@@ -268,7 +287,8 @@ ok(
     parsedSlots.selected === 1 &&
     parsedSlots.slots[0].name === 'Wings' &&
     parsedSlots.slots[0].frames === 125 &&
-    parsedSlots.slots[1].colour.join() === '0,255,0',
+    parsedSlots.slots[0].colours.length === 3 &&
+    parsedSlots.slots[0].colours[2].join() === '120,90,0',
 )
 ok('browser drops unknown frames', parseServerMessage('{"t":"future"}') === null)
 ok('browser drops malformed frames', parseServerMessage('not json') === null)
