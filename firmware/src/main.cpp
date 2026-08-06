@@ -40,10 +40,27 @@ ErrorCode lastError = LS_ERR_NONE;
 
 // Control messages arrive on the network or NimBLE task. They are parked here and
 // executed from loop() so that only one context ever touches FastLED or the heap.
-volatile bool pendingValid = false;
-uint8_t pendingOp = 0;
-uint8_t pendingPayload[LS_HEADER_SIZE];
-size_t pendingLen = 0;
+//
+// A queue rather than a single slot. A peer can send two commands back to back —
+// `select` then `play` is the obvious one — and the transport hands both over
+// before loop() next runs. With one slot the first was silently overwritten, so
+// a select-then-play played whatever had been selected before.
+struct PendingControl {
+  uint8_t op = 0;
+  size_t len = 0;
+  uint8_t payload[LS_HEADER_SIZE] = {0};
+  /** Carried per command, so a name cannot attach itself to the wrong `begin`. */
+  char name[LS_SLOT_NAME] = {0};
+};
+
+constexpr uint8_t PENDING_MAX = 4;
+PendingControl pendingQueue[PENDING_MAX];
+volatile uint8_t pendingHead = 0;  // next to run
+volatile uint8_t pendingTail = 0;  // next free
+
+// Written by onName, which always arrives immediately before its own `begin`.
+char stagedName[LS_SLOT_NAME] = {0};
+// The name belonging to the command currently being executed.
 char pendingName[LS_SLOT_NAME] = {0};
 
 // Set by the Data callback when a progress/completion notification is due.
@@ -278,10 +295,19 @@ void handleControl(uint8_t op, const uint8_t* payload, size_t len) {
 class Handler : public TransportHandler {
   void onControl(const uint8_t* data, size_t len) override {
     if (len < 1) return;
-    pendingOp = data[0];
-    pendingLen = len - 1 > LS_HEADER_SIZE ? LS_HEADER_SIZE : len - 1;
-    memcpy(pendingPayload, data + 1, pendingLen);
-    pendingValid = true;
+    const uint8_t next = (uint8_t)((pendingTail + 1) % PENDING_MAX);
+    if (next == pendingHead) {
+      // Four commands deep without loop() getting a turn means something is very
+      // wrong. Dropping the newest keeps the ones already queued intact.
+      Serial.println("[ctrl] queue full, command dropped");
+      return;
+    }
+    PendingControl& p = pendingQueue[pendingTail];
+    p.op = data[0];
+    p.len = len - 1 > LS_HEADER_SIZE ? LS_HEADER_SIZE : len - 1;
+    memcpy(p.payload, data + 1, p.len);
+    memcpy(p.name, stagedName, sizeof(p.name));
+    pendingTail = next;
   }
 
   // Sanitised here rather than on the way out, so flash never holds a byte that
@@ -289,10 +315,10 @@ class Handler : public TransportHandler {
   // quote or a backslash in it would break that frame for every browser.
   void onName(const char* name) override {
     size_t n = 0;
-    for (const char* p = name; p && *p && n + 1 < sizeof(pendingName); p++) {
-      if (*p >= 0x20 && *p < 0x7F && *p != '"' && *p != '\\') pendingName[n++] = *p;
+    for (const char* p = name; p && *p && n + 1 < sizeof(stagedName); p++) {
+      if (*p >= 0x20 && *p < 0x7F && *p != '"' && *p != '\\') stagedName[n++] = *p;
     }
-    pendingName[n] = 0;
+    stagedName[n] = 0;
   }
 
   void onData(const uint8_t* data, size_t len) override {
@@ -470,9 +496,14 @@ void loop() {
       player.exposing() && (millis() - playStartedMs) < LS_QUIESCE_MAX_MS;
   transport.poll(quiesce, player.exposing());
 
-  if (pendingValid) {
-    pendingValid = false;
-    handleControl(pendingOp, pendingPayload, pendingLen);
+  // One per pass. The queue drains in microseconds at loop() rates, and running
+  // the whole of it here would let a burst of commands each doing flash work
+  // block the socket for as long as they take.
+  if (pendingHead != pendingTail) {
+    const PendingControl& p = pendingQueue[pendingHead];
+    memcpy(pendingName, p.name, sizeof(pendingName));
+    handleControl(p.op, p.payload, p.len);
+    pendingHead = (uint8_t)((pendingHead + 1) % PENDING_MAX);
   }
 
   // The set changed — uploaded, selected, deleted or evicted. Watching the

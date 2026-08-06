@@ -23,6 +23,12 @@ export type UploadStats = {
   kbPerSecond: number
   /** Transport-specific breakdown. BLE's per-write cost was the v1 diagnosis. */
   note?: string
+  /**
+   * Name of the slot this was found in, when the stick already held exactly
+   * these bytes and nothing was sent. Set instead of the timing fields, which
+   * would otherwise report a half-minute upload as having taken no time.
+   */
+  reused?: string
 }
 
 export type Transport = {

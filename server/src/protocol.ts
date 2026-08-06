@@ -59,6 +59,11 @@ export type DeviceSlot = {
   frames: number
   fps: number
   bytes: number
+  /** Of the payload. With `bytes`, this is what identifies an animation exactly. */
+  crc32: number
+  startDelayMs: number
+  loop: boolean
+  pingPong: boolean
   /**
    * Representative colours sampled evenly across the payload, computed on the
    * device while the upload streamed past. One per picker LED.
@@ -161,6 +166,10 @@ export function parseSlots(msg: Record<string, unknown>): DeviceSlots {
       frames: num(item.frames, 0),
       fps: num(item.fps, 0),
       bytes: num(item.bytes, 0),
+      crc32: num(item.crc32, 0),
+      startDelayMs: num(item.startDelayMs, 0),
+      loop: item.loop === true,
+      pingPong: item.pingPong === true,
       colours: colours.map(rgb),
     })
   }

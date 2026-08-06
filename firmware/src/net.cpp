@@ -94,7 +94,7 @@ StatusSnapshot lastStatus;
 // on every reconnect. A browser that joins after the stick did must still see
 // what is stored, and re-deriving it there would need the whole directory in the
 // status message.
-char slotsJson[2048] = {0};
+char slotsJson[3072] = {0};
 
 void writeU16(uint8_t* p, uint16_t v) {
   p[0] = (uint8_t)(v & 0xFF);
@@ -434,11 +434,18 @@ void NetService::publishSlots(const Animation& store) {
     const Slot& s = store.slot(i);
     if (!s.used) continue;
     if (n < 0 || (size_t)n >= sizeof(slotsJson)) break;
+    // Everything an editor needs to recognise these exact bytes: the payload's
+    // CRC and length, and every field that changes how it plays. A browser can
+    // then select a stored animation instead of spending half a minute sending
+    // one the stick already has.
     n += snprintf(slotsJson + n, sizeof(slotsJson) - n,
                   "%s{\"i\":%u,\"name\":\"%s\",\"frames\":%u,\"fps\":%u,\"bytes\":%lu,"
+                  "\"crc32\":%lu,\"startDelayMs\":%u,\"loop\":%s,\"pingPong\":%s,"
                   "\"colours\":[",
                   first ? "" : ",", (unsigned)i, s.name, (unsigned)s.frameCount,
-                  (unsigned)s.fps, (unsigned long)s.bytes);
+                  (unsigned)s.fps, (unsigned long)s.bytes, (unsigned long)s.crc32,
+                  (unsigned)s.startDelayMs, s.loop() ? "true" : "false",
+                  s.pingPong() ? "true" : "false");
     for (uint8_t k = 0; k < LS_SLOT_COLOURS; k++) {
       if (n < 0 || (size_t)n >= sizeof(slotsJson)) break;
       n += snprintf(slotsJson + n, sizeof(slotsJson) - n, "%s[%u,%u,%u]", k ? "," : "",

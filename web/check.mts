@@ -24,6 +24,8 @@ import { createEvaluator, evaluateField, evaluatePreview } from './src/render/fi
 import { BRIGHTNESS_POINTS, MAX_FPS, MIN_FPS } from './src/model/types'
 import { DEFAULT_PATH, PATH_KINDS, poseAt, usedParams } from './src/render/paths'
 import { createSweepWarp } from './src/render/sweep'
+import { findStoredSlot } from './src/transport/protocol'
+import type { DeviceSlot, UploadOptions } from './src/transport/protocol'
 import type { PathParams, Pose } from './src/render/paths'
 import type { Project } from './src/model/types'
 
@@ -581,6 +583,63 @@ ok('period = full strip does not repeat',
   ok('the default path actually moves',
      Math.hypot(pose3.dx - a.dx, pose3.dy - a.dy, pose3.dz - a.dz) > 0.5)
   ok('spin no longer defaults to a degenerate tilt', DEFAULT_PATH.tilt > 0)
+}
+
+// --- reusing an animation already on the stick ------------------------------
+//
+// A false positive means shooting with the wrong animation, so every field that
+// can differ gets its own check rather than one happy path.
+{
+  const slot: DeviceSlot = {
+    i: 3,
+    name: 'Wings',
+    frames: 125,
+    fps: 60,
+    bytes: 54000,
+    crc32: 0xdeadbeef,
+    startDelayMs: 500,
+    loop: true,
+    pingPong: false,
+    colours: [[255, 0, 0]],
+  }
+  const options: UploadOptions = {
+    name: 'Wings',
+    ledCount: 144,
+    frameCount: 125,
+    fps: 60,
+    startDelayMs: 500,
+    loop: true,
+    pingPong: false,
+    autoPlay: false,
+  }
+  const find = (s: Partial<DeviceSlot>, o: Partial<UploadOptions> = {}) =>
+    findStoredSlot([{ ...slot, ...s }], 0xdeadbeef, 54000, { ...options, ...o })
+
+  ok('an identical animation is found', find({})?.i === 3)
+  ok('a different payload is not', findStoredSlot([slot], 0x1234, 54000, options) === null)
+  ok('the same crc at a different length is not',
+     findStoredSlot([slot], 0xdeadbeef, 54001, options) === null)
+  ok('an empty set matches nothing', findStoredSlot([], 0xdeadbeef, 54000, options) === null)
+
+  // These travel in the upload header, not the payload, so the CRC cannot see
+  // them. Miss one and toggling it in the UI would silently do nothing at all.
+  ok('a different frame count is not a match', find({}, { frameCount: 126 }) === null)
+  ok('a different fps is not a match', find({}, { fps: 25 }) === null)
+  ok('a different start delay is not a match', find({}, { startDelayMs: 0 }) === null)
+  ok('a different loop is not a match', find({}, { loop: false }) === null)
+  ok('a different pingPong is not a match', find({}, { pingPong: true }) === null)
+
+  // Excluded on purpose: the device reads autoPlay once, when a transfer
+  // finishes, and never again, so a stored slot disagreeing changes nothing.
+  ok('autoPlay does not block a match', find({}, { autoPlay: true })?.i === 3)
+  // The name is metadata. Renaming should not cost a re-upload of identical bytes.
+  ok('a renamed project still matches', find({ name: 'Other' }, { name: 'Other' })?.i === 3)
+
+  ok('the right slot is picked out of several',
+     findStoredSlot(
+       [{ ...slot, i: 0, crc32: 1 }, { ...slot, i: 7 }, { ...slot, i: 9, crc32: 2 }],
+       0xdeadbeef, 54000, options,
+     )?.i === 7)
 }
 
 console.log(out.join('\n'))

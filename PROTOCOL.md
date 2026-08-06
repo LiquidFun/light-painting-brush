@@ -77,10 +77,24 @@ ignored rather than treated as errors, so one side can be ahead of the other.
 be random per boot.
 
 Each entry of `slots` is
-`{ i, name, frames, fps, bytes, colours: [[r, g, b], ...] }`. `i` is the slot
-index and is sent explicitly, because unused slots are omitted and the set can
-have holes. `selected` is the index that `play` will start, or `-1` when nothing
-is stored.
+`{ i, name, frames, fps, bytes, crc32, startDelayMs, loop, pingPong, colours }`.
+`i` is the slot index and is sent explicitly, because unused slots are omitted
+and the set can have holes. `selected` is the index that `play` will start, or
+`-1` when nothing is stored.
+
+`crc32` and `bytes` identify the payload, and the playback fields alongside them
+complete the picture, so a client can tell that an animation it is about to
+upload is **already in flash** and send `select` instead. At 60–80 kB/s a large
+animation is half a minute, so this is worth doing — but only on an exact match,
+since the failure mode is shooting with the wrong animation. The playback fields
+have to be part of that comparison because they travel in the upload header
+rather than in the payload: without them, toggling `loop` and pressing upload
+would appear to do nothing.
+
+`autoPlay` is not reported, deliberately. The device consults it once, when a
+transfer completes, and never again, so a stored slot has no meaningful value for
+it. A client skipping an upload should honour its own current setting by sending
+`play` after `select`.
 
 `colours` holds one average per equal slice of the payload — three of them, so
 start, middle and end — computed on the device as the upload streamed past. One
@@ -214,6 +228,12 @@ only flow control is `WebSocket.bufferedAmount`, which is enough.
 A `begin` arriving while a device is `RECEIVING` cancels the transfer in progress
 (§3.7). There is no lock and no ownership: the interrupted client sees the state
 change on the broadcast and can retry.
+
+A client that recognises its animation in the device's `slots` should skip the
+transfer entirely and send `select` — see §3.1. Commands sent back to back like
+that are safe: the device queues control frames rather than holding one at a
+time, so a `select` immediately followed by a `play` cannot lose the `select` and
+play the previous animation instead.
 
 ## 7. Library API
 

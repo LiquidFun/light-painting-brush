@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { crc32, findStoredSlot } from './protocol'
 import type { DeviceEntry, UploadOptions } from './protocol'
 import { RelayClient } from './relay'
 import type { LinkState, Transport, UploadProgress, UploadStats } from './types'
@@ -57,6 +58,20 @@ export function useRelay(enabled: boolean): Transport {
         return false
       }
       setError(null)
+
+      // Already in flash, byte for byte: select it rather than spending half a
+      // minute re-sending it. Only ever on an exact match — the cost of getting
+      // this wrong is shooting with the wrong animation.
+      const stored = findStoredSlot(selected?.slots ?? [], crc32(payload), payload.length, options)
+      if (stored) {
+        client.selectSlot(selectedId, stored.i)
+        // The stored slot's own autoPlay flag is stale by now, so honour the
+        // setting as it stands rather than what it was when this was uploaded.
+        if (options.autoPlay) client.play(selectedId)
+        setLastUpload({ bytes: payload.length, wallMs: 0, kbPerSecond: 0, reused: stored.name })
+        return true
+      }
+
       setUploading(true)
       try {
         await client.upload(selectedId, payload, options)
@@ -69,7 +84,7 @@ export function useRelay(enabled: boolean): Transport {
         setProgress(null)
       }
     },
-    [client, selectedId],
+    [client, selectedId, selected],
   )
 
   const command = useCallback(

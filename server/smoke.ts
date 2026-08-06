@@ -193,6 +193,10 @@ device.send(
         frames: 125,
         fps: 60,
         bytes: 54000,
+        crc32: 0xdeadbeef,
+        startDelayMs: 500,
+        loop: true,
+        pingPong: false,
         colours: [[255, 0, 0], [200, 40, 0], [120, 90, 0]],
       },
       {
@@ -212,6 +216,22 @@ const slots = await slotsAtClient
 ok('slots broadcast carries deviceId', slots.deviceId === 'lightstick-aabbccddeeff')
 ok('slots are relayed in order', slots.slots.map((s: any) => s.i).join() === '0,1')
 ok('every sample is relayed', slots.slots[0].colours.length === 3)
+// Without these the browser cannot tell "already on the stick" from "close
+// enough", and would ship the wrong animation to a shoot.
+ok(
+  'the fields that identify an animation survive the relay',
+  slots.slots[0].crc32 === 0xdeadbeef &&
+    slots.slots[0].startDelayMs === 500 &&
+    slots.slots[0].loop === true &&
+    slots.slots[0].pingPong === false,
+)
+ok(
+  'a device that omits them gets safe defaults, not undefined',
+  slots.slots[1].crc32 === 0 &&
+    slots.slots[1].startDelayMs === 0 &&
+    slots.slots[1].loop === false &&
+    slots.slots[1].pingPong === false,
+)
 ok('colours are clamped to bytes', slots.slots[1].colours[0].join() === '0,255,0')
 ok('a short colour is padded', slots.slots[1].colours[1].join() === '10,0,0')
 ok('a non-array colour becomes black', slots.slots[1].colours[2].join() === '0,0,0')

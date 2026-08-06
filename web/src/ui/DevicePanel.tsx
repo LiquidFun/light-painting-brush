@@ -305,12 +305,20 @@ export function DevicePanel({
         {/* v1 shipped without this and the resulting performance problem took a
             whole debugging session to characterise (§6.10). */}
         {!progress && transport.lastUpload && (
-          <p className="num text-xs text-mute">
-            Last upload {transport.lastUpload.kbPerSecond.toFixed(1)} kB/s ·{' '}
-            {formatBytes(transport.lastUpload.bytes)} in{' '}
-            {(transport.lastUpload.wallMs / 1000).toFixed(1)} s
-            {transport.lastUpload.note && ` · ${transport.lastUpload.note}`}
-          </p>
+          transport.lastUpload.reused ? (
+            <p className="text-xs text-mute">
+              Already on the stick as “{transport.lastUpload.reused}”, byte for byte —
+              selected it instead of sending {formatBytes(transport.lastUpload.bytes)}
+              again.
+            </p>
+          ) : (
+            <p className="num text-xs text-mute">
+              Last upload {transport.lastUpload.kbPerSecond.toFixed(1)} kB/s ·{' '}
+              {formatBytes(transport.lastUpload.bytes)} in{' '}
+              {(transport.lastUpload.wallMs / 1000).toFixed(1)} s
+              {transport.lastUpload.note && ` · ${transport.lastUpload.note}`}
+            </p>
+          )
         )}
 
         <Row>

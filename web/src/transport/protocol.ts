@@ -102,6 +102,11 @@ export type DeviceSlot = {
   frames: number
   fps: number
   bytes: number
+  /** Of the payload. With `bytes`, this is what identifies an animation exactly. */
+  crc32: number
+  startDelayMs: number
+  loop: boolean
+  pingPong: boolean
   /**
    * Representative colours sampled evenly across the payload, computed on the
    * device while the upload streamed past. One per picker LED, so the swatch in
@@ -193,6 +198,10 @@ function parseSlots(raw: unknown): DeviceSlot[] {
       frames: num(item.frames, 0),
       fps: num(item.fps, 0),
       bytes: num(item.bytes, 0),
+      crc32: num(item.crc32, 0),
+      startDelayMs: num(item.startDelayMs, 0),
+      loop: item.loop === true,
+      pingPong: item.pingPong === true,
       colours: (Array.isArray(item.colours) ? item.colours : []).map(rgb),
     })
   }
@@ -259,6 +268,43 @@ export function parseServerMessage(text: string): ServerMessage | null {
     return { t: 'error', message: parsed.message }
   }
   return null
+}
+
+/**
+ * The slot already holding exactly this animation, or null.
+ *
+ * Uploading 1.7 MB takes half a minute, so re-sending bytes the stick already
+ * has is worth avoiding — but only on an exact match, because the alternative is
+ * shooting with an animation that is not the one on screen.
+ *
+ * `crc32` plus `bytes` identifies the payload. The rest are the playback fields,
+ * and they have to be compared too: they travel in the upload header rather than
+ * in the payload, so without them, toggling `loop` and pressing Upload would
+ * silently do nothing at all.
+ *
+ * `autoPlay` is deliberately excluded. The device only consults it at the moment
+ * a transfer completes and never again, so a stored slot disagreeing about it
+ * changes nothing — the caller honours the *current* setting by playing after
+ * selecting.
+ */
+export function findStoredSlot(
+  slots: DeviceSlot[],
+  payloadCrc: number,
+  payloadBytes: number,
+  options: UploadOptions,
+): DeviceSlot | null {
+  return (
+    slots.find(
+      (s) =>
+        s.crc32 === payloadCrc &&
+        s.bytes === payloadBytes &&
+        s.frames === options.frameCount &&
+        s.fps === options.fps &&
+        s.startDelayMs === options.startDelayMs &&
+        s.loop === options.loop &&
+        s.pingPong === options.pingPong,
+    ) ?? null
+  )
 }
 
 // --- CRC-32 ---------------------------------------------------------------
