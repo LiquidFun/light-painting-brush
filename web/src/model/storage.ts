@@ -324,6 +324,10 @@ export function sanitiseProject(raw: unknown): Project {
       // Signed: the sign is the direction of travel, so the range spans both.
       sweep: clamp(num(sweep.sweep, 180), -720, 720),
       pivot: clamp(num(sweep.pivot, 0), 0, 1),
+      // 0 for projects written before this existed. They were rendered as though
+      // it were 100 and had their corners cut off, so reopening one now shows the
+      // whole drawing — the behaviour that was wanted in the first place.
+      fill: clamp(num(sweep.fill, 0), 0, 100),
     },
     playback: {
       // Existing projects keep what they had; only new ones get the new

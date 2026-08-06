@@ -531,9 +531,24 @@ described reproduces the drawing undistorted. Parameters are the start angle, th
 signed sweep in degrees (the sign is the direction) and the pivot, as a fraction
 along the strip — where the hand is.
 
-The design is fitted to the bounding box of the reachable area, so every cell
-lands inside it by construction and nothing needs clipping. Regions of the design
-the stick never reaches are simply not painted.
+A swept arc does not fill its own bounding box, so how the design is fitted to it
+is a choice, and it is the same one as `contain` versus `cover`. `fill`, 0 to 100,
+makes it: at 100 the design is fitted to the bounding box and fills the shot, but
+its corners land where the stick never goes and are never painted — which is how
+the tips of a pair of wings went missing. At 0 it shrinks until all of it is
+inside the arc, nothing is lost, and the rest of the swept area stays dark.
+
+`fill` defaults to 0, including for projects saved before it existed: silently
+dropping part of the drawing is the worse surprise.
+
+Below 100 a cell can land outside the design. Those must be left unpainted.
+Clamping instead smears the design's edge pixels around the rest of the arc.
+
+Some sweeps admit no fitted rectangle at all — a pivot part-way along the strip
+with less than a half turn traces a bowtie, and any rectangle centred on it spans
+the gap between the two wedges. Shrinking toward that pinch point lowers coverage
+rather than raising it, so `fill` 0 declines to shrink there instead of collapsing
+the drawing to a dot.
 
 It applies to the *coordinates*, before the layers are sampled, so everything is
 authored undistorted. The brightness curves stay on the real coordinates: they

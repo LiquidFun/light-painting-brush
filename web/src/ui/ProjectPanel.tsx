@@ -205,9 +205,31 @@ export function ProjectPanel({
               onCommitStart={() => onPatch({}, true)}
               onChange={(v) => onPatch({ sweep: { ...project.sweep, pivot: v / 100 } }, false)}
             />
+            <Slider
+              label="Fill"
+              value={project.sweep.fill}
+              min={0}
+              max={100}
+              display={
+                project.sweep.fill === 0
+                  ? 'Whole drawing'
+                  : project.sweep.fill === 100
+                    ? 'Whole shot'
+                    : `${project.sweep.fill}%`
+              }
+              hint="A turning stick sweeps an arc, and an arc does not fill a rectangle.
+                At 0 the drawing shrinks until all of it is inside the arc, so nothing is
+                lost. At 100 it is stretched to fill the shot and the corners fall outside
+                the arc, where they are never painted."
+              onCommitStart={() => onPatch({}, true)}
+              onChange={(v) => onPatch({ sweep: { ...project.sweep, fill: v } }, false)}
+            />
             <p className="text-xs text-mute">
-              The drawing is fitted to the area the sweep can actually reach, so it fills
-              the shot. Anything falling where the stick never goes is simply not painted.
+              {project.sweep.fill === 0
+                ? 'All of the drawing is inside the arc, so nothing is lost. The rest of the swept area stays dark.'
+                : project.sweep.fill === 100
+                  ? 'The drawing is fitted to the arc’s bounding box, so it fills the shot. Its corners fall where the stick never goes and are not painted.'
+                  : 'Part way between: the drawing overflows the arc a little, and loses only what falls outside it.'}
             </p>
           </>
         )}

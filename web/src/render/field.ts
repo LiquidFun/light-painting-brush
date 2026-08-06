@@ -300,6 +300,14 @@ export function createEvaluator(
         warp(u, v, warped)
         su = warped[0]
         sv = warped[1]
+        // The stick is somewhere the design does not cover, which happens
+        // whenever the sweep's fill is below 100. Leave the cell at the
+        // background: clamping instead would smear the design's edge pixels out
+        // across the rest of the arc as long streaks.
+        // Negated rather than written as the out-of-range test, so a NaN — which
+        // compares false against everything — is treated as out of range instead
+        // of being passed down to the layers.
+        if (!(su >= 0 && su <= 1 && sv >= 0 && sv <= 1)) return
       }
 
       for (const layer of layers) {

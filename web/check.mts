@@ -468,7 +468,7 @@ ok('period = full strip does not repeat',
 
   // The warp must be the exact inverse of the sweep: the design point it picks
   // for a cell has to be where that LED physically lands.
-  const c = { enabled: true, startAngle: 0, sweep: 180, pivot: 0 }
+  const c = { enabled: true, startAngle: 0, sweep: 180, pivot: 0, fill: 100 }
   const warp = createSweepWarp(c)
   let worst = 0
   for (const u of [0.1, 0.4, 0.7, 1]) {
@@ -486,9 +486,9 @@ ok('period = full strip does not repeat',
 
   // Fitted to the reachable area, so nothing can land outside the design.
   for (const cfg of [
-    { enabled: true, startAngle: 0, sweep: 180, pivot: 0 },
-    { enabled: true, startAngle: -140, sweep: -95, pivot: 0.5 },
-    { enabled: true, startAngle: 33, sweep: 360, pivot: 0.2 },
+    { enabled: true, startAngle: 0, sweep: 180, pivot: 0, fill: 100 },
+    { enabled: true, startAngle: -140, sweep: -95, pivot: 0.5, fill: 100 },
+    { enabled: true, startAngle: 33, sweep: 360, pivot: 0.2, fill: 100 },
   ]) {
     const w = createSweepWarp(cfg)
     let inside = true
@@ -503,8 +503,62 @@ ok('period = full strip does not repeat',
     ok(`sweep ${cfg.sweep}° pivot ${cfg.pivot}: every cell lands inside the design`, inside)
   }
 
+  // What the fill control exists for. "The tips of the wings go missing" means a
+  // part of the design that no cell ever samples, so measure exactly that:
+  // rasterise the design and count the cells the sweep actually paints.
+  const coverage = (cfg: Parameters<typeof createSweepWarp>[0]) => {
+    const N = 24
+    const SAMPLES = 400
+    const hit = new Set<number>()
+    const w = createSweepWarp(cfg)
+    let outside = 0
+    for (let i = 0; i <= SAMPLES; i++) {
+      for (let j = 0; j <= SAMPLES; j++) {
+        w(i / SAMPLES, j / SAMPLES, out)
+        if (!(out[0] >= 0 && out[0] <= 1 && out[1] >= 0 && out[1] <= 1)) {
+          outside++
+          continue
+        }
+        hit.add(Math.min(N - 1, Math.floor(out[1] * N)) * N + Math.min(N - 1, Math.floor(out[0] * N)))
+      }
+    }
+    return { painted: hit.size / (N * N), outside }
+  }
+
+  for (const geom of [
+    { startAngle: 0, sweep: 180, pivot: 0 },
+    { startAngle: 33, sweep: 360, pivot: 0.2 },
+    { startAngle: -10, sweep: 200, pivot: 0.15 },
+  ]) {
+    const full = coverage({ enabled: true, ...geom, fill: 100 })
+    const fitted = coverage({ enabled: true, ...geom, fill: 0 })
+    ok(`sweep ${geom.sweep}°: fill 0 paints the whole drawing`,
+       fitted.painted > 0.999, `${(fitted.painted * 100).toFixed(1)}%`)
+    ok(`sweep ${geom.sweep}°: fill 100 loses part of it`,
+       full.painted < 0.98, `${(full.painted * 100).toFixed(1)}%`)
+    // The flip side of nothing being lost: the arc now reaches past the drawing,
+    // and those cells must come back out of range so the caller leaves them dark.
+    ok(`sweep ${geom.sweep}°: fill 0 reports the uncovered arc`, fitted.outside > 0)
+    ok(`sweep ${geom.sweep}°: fill 100 never leaves the design`, full.outside === 0)
+  }
+
+  // A pivot part-way along the strip with less than a half turn traces a bowtie,
+  // two opposite wedges meeting at the hand, and no rectangle centred there fits
+  // between them at any size. Shrinking toward the pinch makes coverage worse,
+  // so fill 0 must decline to shrink rather than collapse the drawing to a dot.
+  const bowtie = { enabled: true, startAngle: -140, sweep: -95, pivot: 0.5 } as const
+  ok('a sweep with no room for the drawing does not shrink it away',
+     near(coverage({ ...bowtie, fill: 0 }).painted, coverage({ ...bowtie, fill: 100 }).painted, 1e-9),
+     `${(coverage({ ...bowtie, fill: 0 }).painted * 100).toFixed(1)}%`)
+
+  // And the slider does something all the way along, not just at the ends.
+  const mid = coverage({ enabled: true, startAngle: 0, sweep: 180, pivot: 0, fill: 50 })
+  const ends = coverage({ enabled: true, startAngle: 0, sweep: 180, pivot: 0, fill: 100 })
+  ok('fill 50 sits between the two', mid.painted < 1 && mid.painted > ends.painted,
+     `${mid.painted.toFixed(3)} vs ${ends.painted.toFixed(3)}`)
+
   // Landmarks a person can check against a drawing.
-  const half = createSweepWarp({ enabled: true, startAngle: 0, sweep: 180, pivot: 0 })
+  const half = createSweepWarp({ enabled: true, startAngle: 0, sweep: 180, pivot: 0, fill: 100 })
   // Pointing straight up mid-sweep must show the *top* of the drawing, not the
   // bottom. Getting this backwards renders every corrected project upside down.
   half(1, 0.5, out)
@@ -522,8 +576,8 @@ ok('period = full strip does not repeat',
 
   // Reversing the sign must mirror the result, since it is the same arc travelled
   // the other way.
-  const fwd = createSweepWarp({ enabled: true, startAngle: 0, sweep: 180, pivot: 0 })
-  const back = createSweepWarp({ enabled: true, startAngle: 0, sweep: -180, pivot: 0 })
+  const fwd = createSweepWarp({ enabled: true, startAngle: 0, sweep: 180, pivot: 0, fill: 100 })
+  const back = createSweepWarp({ enabled: true, startAngle: 0, sweep: -180, pivot: 0, fill: 100 })
   fwd(1, 0.25, out)
   const a = [...out]
   back(1, 0.25, out)
@@ -539,7 +593,7 @@ ok('period = full strip does not repeat',
 
   // Enabling it must actually change the render, and leave it alone when off.
   const base = solidProject()
-  const painted = { ...base, sweep: { enabled: true, startAngle: 0, sweep: 180, pivot: 0 } }
+  const painted = { ...base, sweep: { enabled: true, startAngle: 0, sweep: 180, pivot: 0, fill: 100 } }
   ok('a solid layer is unchanged by the warp',
      evaluateField(painted).data.every((v, i) => near(v, evaluateField(base).data[i])))
 }
