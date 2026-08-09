@@ -90,6 +90,15 @@ void forgetHint() {
 uint32_t failedJoins = 0;
 StatusSnapshot lastStatus;
 
+/**
+ * When the current socket came up.
+ *
+ * A drop six to twelve seconds after connecting is the heartbeat giving up on
+ * itself; an immediate one is the far end closing or going away. The log could
+ * not tell those apart, and guessing between them has already cost a session.
+ */
+uint32_t linkedAtMs = 0;
+
 // The last `slots` frame, rebuilt only when the set changes and resent verbatim
 // on every reconnect. A browser that joins after the stick did must still see
 // what is stored, and re-deriving it there would need the whole directory in the
@@ -296,7 +305,9 @@ void NetService::onConnected() {
   linked_ = true;
   backoffMs_ = LS_RECONNECT_MIN_MS;
   ws.setReconnectInterval(backoffMs_);
-  Serial.printf("[net] relay connected, heap %u\n", (unsigned)ESP.getFreeHeap());
+  linkedAtMs = millis();
+  Serial.printf("[net] relay connected at %u ms, heap %u\n", (unsigned)linkedAtMs,
+                (unsigned)ESP.getFreeHeap());
   // Re-applied rather than assumed: a reconnect rebuilds the library's client
   // state, and a socket that came back while the last transfer was still marked
   // RECEIVING would otherwise be left with no keep-alive at all.
@@ -314,7 +325,11 @@ void NetService::onDisconnected() {
   backoffMs_ = backoffMs_ * 2 > LS_RECONNECT_MAX_MS ? LS_RECONNECT_MAX_MS : backoffMs_ * 2;
   ws.setReconnectInterval(backoffMs_);
   if (wasLinked) {
-    Serial.printf("[net] relay lost, retrying in %u ms\n", (unsigned)backoffMs_);
+    // How long it held is the diagnostic. Around the pong window means the
+    // heartbeat hung up on us; immediately means the other end went away.
+    Serial.printf("[net] relay lost after %u ms (heartbeat %s), retrying in %u ms\n",
+                  (unsigned)(millis() - linkedAtMs), heartbeat_ ? "on" : "off",
+                  (unsigned)backoffMs_);
     if (handler_) handler_->onPeerLost();
   } else {
     // A socket that never came up at all used to log nothing, which looks
