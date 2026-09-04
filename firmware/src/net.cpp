@@ -131,7 +131,7 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
       self->onConnected();
       break;
     case WStype_DISCONNECTED:
-      self->onDisconnected();
+      self->onDisconnected(payload, length);
       break;
     case WStype_TEXT:
       self->onText(payload, length);
@@ -140,7 +140,8 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
       if (self->handler()) self->handler()->onData(payload, length);
       break;
     case WStype_ERROR:
-      Serial.println("[net] websocket error");
+      Serial.printf("[net] websocket error: %.*s\n", payload ? (int)length : 0,
+                    payload ? (const char*)payload : "");
       break;
     default:
       // Ping/pong and fragment events need nothing from us.
@@ -296,6 +297,11 @@ void NetService::poll(bool quiesce, bool playing) {
   // an unbounded quiesce left a stick that lost its socket mid-playback unable
   // to rebuild it, playing on unreachable with nothing for an upload to arrive
   // over.
+
+  // Before the early return, so the "down since" clock keeps running through a
+  // quiesced exposure instead of restarting at the end of one.
+  reportRelayDown();
+
   if (quiesce && !linked_) return;
   if (!quiesce) ensureWifi(wifiWasUp_, playing);
   ws.loop();
@@ -317,27 +323,71 @@ void NetService::onConnected() {
   if (slotsJson[0]) ws.sendTXT(slotsJson);
 }
 
-void NetService::onDisconnected() {
+void NetService::onDisconnected(const uint8_t* reason, size_t len) {
   bool wasLinked = linked_;
   linked_ = false;
   // Exponential backoff capped at 30 s (§3.2). arduinoWebSockets retries on a
   // fixed interval, so the growth has to be applied here.
   backoffMs_ = backoffMs_ * 2 > LS_RECONNECT_MAX_MS ? LS_RECONNECT_MAX_MS : backoffMs_ * 2;
   ws.setReconnectInterval(backoffMs_);
+
+  // The library hands us the reason as a bare pointer and a length, so copy it
+  // out before printing. It is the single most useful line in this log: a
+  // refused handshake arrives here as "WebSocket handshake failed - HTTP 401"
+  // (wrong password) or "- HTTP 502" (Caddy is up, the relay process is not),
+  // and we were throwing all of it away.
+  char why[64];
+  if (reason && len > 0) {
+    const size_t n = len < sizeof(why) - 1 ? len : sizeof(why) - 1;
+    memcpy(why, reason, n);
+    why[n] = 0;
+  } else {
+    snprintf(why, sizeof(why), "no reason given");
+  }
+
   if (wasLinked) {
     // How long it held is the diagnostic. Around the pong window means the
     // heartbeat hung up on us; immediately means the other end went away.
-    Serial.printf("[net] relay lost after %u ms (heartbeat %s), retrying in %u ms\n",
-                  (unsigned)(millis() - linkedAtMs), heartbeat_ ? "on" : "off",
+    Serial.printf("[net] relay lost after %u ms (heartbeat %s): %s, retrying in %u ms\n",
+                  (unsigned)(millis() - linkedAtMs), heartbeat_ ? "on" : "off", why,
                   (unsigned)backoffMs_);
     if (handler_) handler_->onPeerLost();
   } else {
-    // A socket that never came up at all used to log nothing, which looks
-    // identical to the event loop not running. Rate-limited by the backoff.
-    Serial.printf("[net] relay connect failed: %s%s:%u%s, retrying in %u ms\n",
+    // Reached only when the socket got far enough to be refused — a TCP or TLS
+    // connect that never completes produces no event at all, which is what
+    // reportRelayDown() is for.
+    Serial.printf("[net] relay handshake refused: %s%s:%u%s: %s, retrying in %u ms\n",
                   LS_RELAY_TLS ? "wss://" : "ws://", LS_RELAY_HOST,
-                  (unsigned)LS_RELAY_PORT, LS_RELAY_PATH, (unsigned)backoffMs_);
+                  (unsigned)LS_RELAY_PORT, LS_RELAY_PATH, why, (unsigned)backoffMs_);
   }
+}
+
+void NetService::reportRelayDown() {
+  if (linked_ || WiFi.status() != WL_CONNECTED) {
+    if (relayDown_ && linked_) {
+      Serial.printf("[net] relay back after %u s down\n",
+                    (unsigned)((millis() - relayDownSinceMs_) / 1000));
+    }
+    relayDown_ = false;
+    return;
+  }
+
+  const uint32_t now = millis();
+  if (!relayDown_) {
+    relayDown_ = true;
+    relayDownSinceMs_ = now;
+    relayGripedAtMs_ = now;
+    return;
+  }
+  if (now - relayGripedAtMs_ < LS_RELAY_DOWN_LOG_MS) return;
+  relayGripedAtMs_ = now;
+  // Everything needed to tell the three causes apart without a debugger: how
+  // long it has been orange, where it is dialling, how often, and whether the
+  // heap is still big enough for a TLS handshake.
+  Serial.printf("[net] no relay socket for %u s: %s%s:%u%s, retry every %u ms, heap %u\n",
+                (unsigned)((now - relayDownSinceMs_) / 1000),
+                LS_RELAY_TLS ? "wss://" : "ws://", LS_RELAY_HOST, (unsigned)LS_RELAY_PORT,
+                LS_RELAY_PATH, (unsigned)backoffMs_, (unsigned)ESP.getFreeHeap());
 }
 
 void NetService::onText(const uint8_t* payload, size_t len) {

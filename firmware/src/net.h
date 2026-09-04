@@ -30,13 +30,20 @@ class NetService : public Transport {
 
   TransportHandler* handler() const { return handler_; }
 
-  // Called from the WebSocket event callback.
+  // Called from the WebSocket event callback. `reason` is the library's own
+  // description of the drop and is not NUL-terminated; it carries the HTTP status
+  // when a handshake was refused, which is the difference between a wrong
+  // password, a wrong path and a relay that is not running.
   void onConnected();
-  void onDisconnected();
+  void onDisconnected(const uint8_t* reason, size_t len);
   void onText(const uint8_t* payload, size_t len);
 
  private:
   void sendHello();
+
+  // Says something, periodically, while the radio is on the network but the relay
+  // socket is not up. See the definition for why this cannot be event-driven.
+  void reportRelayDown();
 
   // Keep-alive on or off. Off during a transfer: flash writes stall ws.loop()
   // for seconds, so a busy stick could not answer a ping and disconnected
@@ -49,4 +56,11 @@ class NetService : public Transport {
   bool heartbeat_ = true;
   uint32_t backoffMs_ = LS_RECONNECT_MIN_MS;
   bool wifiWasUp_ = false;
+
+  // For reportRelayDown: when the relay socket went away, and when we last said
+  // so. `relayDown_` rather than a zero sentinel on the timestamps, because
+  // millis() is legitimately 0 for the first millisecond after boot.
+  bool relayDown_ = false;
+  uint32_t relayDownSinceMs_ = 0;
+  uint32_t relayGripedAtMs_ = 0;
 };

@@ -33,7 +33,13 @@ constexpr uint8_t BUTTON_PIN = 0;  // on-board BOOT button, active low
 //   PC USB 2.0 port  (500 mA total) -> 250
 //   PC USB 3.0 port  (900 mA total) -> 600
 //   USB power bank   (5 V 3 A)      -> 2200  <- the value REQUIREMENTS §4.5 mandates
-constexpr uint16_t MAX_MILLIAMPS = 250;
+//
+// Do not leave a bench value in here. FastLED scales the *whole frame* to fit the
+// budget, and it does so per frame, from that frame's own content: at 250 mA an
+// all-white frame comes out at brightness 10 of 255 while a dark one is untouched.
+// That is an eight-fold, content-dependent brightness swing applied after all the
+// browser's gamma and colour work, which is exactly what §2 says must not happen.
+constexpr uint16_t MAX_MILLIAMPS = 2200;
 constexpr uint8_t DEFAULT_BRIGHTNESS = 80;
 
 // Light LED 0 dim as a state indicator while idle/ready/error.
@@ -62,6 +68,16 @@ constexpr size_t LS_RELAY_CHUNK = 4096;
 // Exponential backoff on a dropped relay socket, capped (§2).
 constexpr uint32_t LS_RECONNECT_MIN_MS = 1000;
 constexpr uint32_t LS_RECONNECT_MAX_MS = 30000;
+
+// How often to say "still no relay socket" while the radio is associated.
+//
+// Polled rather than event-driven, because the library gives us no event for the
+// case that matters: a TCP or TLS connect that simply fails calls
+// connectFailedCb(), which is a bare DEBUG_WEBSOCKETS and compiles to nothing
+// unless DEBUG_ESP_PORT is set. So the most common outage of all — relay process
+// down, DNS not answering, port closed — printed absolutely nothing, and an
+// orange status LED with a silent log looks exactly like a hung event loop.
+constexpr uint32_t LS_RELAY_DOWN_LOG_MS = 10000;
 
 // WebSocket keep-alive, for spotting a half-open socket after a roam.
 //
