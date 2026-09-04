@@ -153,6 +153,7 @@ firmware/
   src/secrets.example.h     template for the gitignored secrets.h
 .github/workflows/
   ci.yml                    typecheck + build web, typecheck + smoke test server
+  deploy.yml                on green CI on main: build, rsync, restart the relay
 server/
   src/index.ts              http + websocket upgrade
   src/relay.ts              device registry, routing, streaming binary

@@ -68,8 +68,27 @@ things to get right in a unit file:
   `StateDirectory=` is the easy answer), so redeploying with `rsync --delete`
   cannot take the project library with it.
 
-`.github/workflows/ci.yml` typechecks and builds `web/`, typechecks `server/`, and
-runs `npm run smoke` on every push and PR.
+## CI
+
+| Workflow | Trigger | Does |
+|---|---|---|
+| `ci.yml` | every push and PR | typechecks and builds `web/`, typechecks `server/`, runs `npm run smoke` |
+| `deploy.yml` | CI succeeding on `main`, or `workflow_dispatch` | builds the SPA, rsyncs `server/` and `web/dist/`, `npm ci --omit=dev`, restarts the unit, checks it came up |
+
+The deploy names no infrastructure. It reads three repo variables and one secret,
+and skips itself entirely when `DEPLOY_HOST` is unset, so a fork neither deploys
+nor reports a failure:
+
+| Setting | Kind | Meaning |
+|---|---|---|
+| `DEPLOY_HOST` | variable | ssh target; unset disables the deploy |
+| `DEPLOY_USER` | variable | ssh account, may `sudo systemctl restart lightstick` |
+| `DEPLOY_ROOT` | variable | rsync destination, defaults to `/srv/lightstick` |
+| `DEPLOY_SSH_KEY` | secret | private half of the key authorised for `DEPLOY_USER` |
+
+```sh
+ssh-keygen -t ed25519 -f deploy_key -N "" -C "lightstick-deploy"
+```
 
 ## Things worth knowing
 

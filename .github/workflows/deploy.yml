@@ -1,0 +1,86 @@
+name: Deploy
+
+# Fires after CI succeeds on main, so a broken tree never reaches the server.
+# workflow_dispatch is there for redeploying without a new commit.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Never cancel a deploy halfway through: the server would be left with files
+# from one commit and a service restarted for another.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+# Host and account come from repo variables so this file names no infrastructure.
+# REMOTE_ROOT is owned by DEPLOY_USER; the library lives in the service's
+# StateDirectory outside this tree and is never touched here.
+env:
+  DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+  DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+  REMOTE_ROOT: ${{ vars.DEPLOY_ROOT || '/srv/lightstick' }}
+
+jobs:
+  deploy:
+    # workflow_run fires on failure too, so the conclusion has to be checked.
+    # An unset DEPLOY_HOST skips the job, so a fork does not deploy or go red.
+    if: >-
+      vars.DEPLOY_HOST != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # For workflow_run the default ref is the branch tip, which may already
+          # have moved past the commit CI actually passed on.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the SPA
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Authorise ssh
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Trust on first use. Acceptable for a single VPS whose fingerprint is
+          # easy to check by hand; pin DEPLOY_KNOWN_HOSTS instead if that changes.
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      # node_modules is rebuilt on the server by `npm ci`, so shipping the
+      # runner's copy would be both slower and wrong for a different platform.
+      - name: Rsync the relay
+        run: |
+          rsync -az --delete --exclude=node_modules \
+            server/ "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_ROOT/server/"
+
+      - name: Rsync the SPA
+        run: |
+          rsync -az --delete \
+            web/dist/ "$DEPLOY_USER@$DEPLOY_HOST:$REMOTE_ROOT/web/dist/"
+
+      # There is no build step: the relay is TypeScript that node runs directly
+      # by stripping types, so src/index.ts is the deployed artefact.
+      - name: Install dependencies and restart
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd $REMOTE_ROOT/server && npm ci --omit=dev && sudo systemctl restart lightstick"
+
+      # Without this a unit that fails to start still reports a green deploy.
+      - name: Check the service came up
+        run: |
+          sleep 3
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "systemctl is-active lightstick"
