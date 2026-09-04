@@ -47,6 +47,36 @@ server.on('upgrade', (req, socket, head) => {
   }
 })
 
+// Nothing below is allowed to kill the process.
+//
+// Every device and browser socket lives inside it, so one unhandled error is a
+// relay-wide outage — and a repeating one trips systemd's default start limit
+// and stops the unit altogether, which from a stick's side is indistinguishable
+// from a network fault. Staying up in a possibly-degraded state is the lesser
+// evil here: the worst case is one broken request, against every stick in the
+// field going dark.
+process.on('uncaughtException', (err) => {
+  console.error('[server] uncaught exception, staying up:', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandled rejection, staying up:', reason)
+})
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  // Failing to listen at all is the exception: a server with no socket serves
+  // nobody, and surviving it would hide the failure from systemd.
+  if (!server.listening) {
+    console.error(`[server] cannot listen on ${host}:${port} —`, err)
+    process.exit(1)
+  }
+  console.error('[server] http error:', err)
+})
+
+// handleUpgrade failures land here rather than on a socket that has no listener
+// yet, so they need somewhere to go too.
+devices.on('error', (err) => console.error('[server] device ws error:', err))
+clients.on('error', (err) => console.error('[server] client ws error:', err))
+
 server.listen(port, host, () => {
   console.log(`[server] http://${host}:${port}`)
   console.log(`[server] static ${staticDir}`)

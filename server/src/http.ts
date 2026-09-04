@@ -8,6 +8,7 @@ import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
+import { pipeline } from 'node:stream/promises'
 
 import { MAX_PROJECT_BYTES, isValidId } from './library.ts'
 import type { Library } from './library.ts'
@@ -164,7 +165,32 @@ async function serveStatic(
     res.end()
     return
   }
-  createReadStream(file).pipe(res)
+
+  // `pipeline`, never `.pipe()`. Two reasons, both of which have taken the whole
+  // relay down or leaked it away:
+  //
+  // A read stream that fails *after* the headers are out — a file removed or
+  // chmodded between the stat above and the open here, which `rsync --delete`
+  // during a deploy does routinely — emits 'error' with no listener attached.
+  // That is an uncaught exception, so the process dies and every device and
+  // browser socket dies with it. A stick then sees the relay refuse connections
+  // and, if the crash repeats, systemd's start limit stops the unit for good.
+  //
+  // And `.pipe()` unpipes when the destination closes but never destroys the
+  // source, so every aborted download leaked an fd and its read-ahead buffer.
+  try {
+    await pipeline(createReadStream(file), res)
+  } catch (err) {
+    // Navigating away mid-download is not a fault and must not be logged as one.
+    if (!isClientAbort(err)) console.error('[http] while sending', file, err)
+    res.destroy()
+  }
+}
+
+/** The response went away under us, rather than the file failing to be read. */
+function isClientAbort(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code
+  return code === 'ERR_STREAM_PREMATURE_CLOSE' || code === 'EPIPE' || code === 'ECONNRESET'
 }
 
 export function createRequestHandler(library: Library, staticDir: string) {
