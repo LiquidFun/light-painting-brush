@@ -136,7 +136,8 @@ Payload size is `frameCount × ledCount × 3`. At 144 LEDs that is 432 bytes per
 ### 3.2 Connections
 
 Both sides open a WebSocket to the server over TLS. Authentication is HTTP Basic,
-enforced by Caddy in front of the application, with one shared password.
+enforced by the reverse proxy in front of the application, with one shared
+password.
 
 | Endpoint | Who | Notes |
 |---|---|---|
@@ -386,9 +387,11 @@ Storage is a directory of JSON files. A database is not warranted.
 
 ### 5.2 Deployment
 
-Caddy terminates TLS and enforces Basic auth for every route, including both
-WebSocket endpoints. The application never sees an unauthenticated request and
-implements no auth of its own.
+A reverse proxy terminates TLS and enforces Basic auth for every route, including
+both WebSocket endpoints. The application never sees an unauthenticated request
+and implements no auth of its own, so it must never be reachable directly.
+
+The proxy and host configuration are not part of this repository.
 
 Rotating the password requires reflashing every device, since it is compiled in.
 Acceptable at one device; the reason to move to per-device tokens later.
@@ -728,7 +731,7 @@ value — and they keep working if the migration stalls.
 | M0 | Layer model, v1 project migration | Existing projects load unchanged as one keyframe layer |
 | M1 | Pattern layers — stripes, wave, gradient | Design a striped sweep with no keyframes |
 | M2 | Image layers | Import a photo, see it on the canvas and the strip bar |
-| M3 | `server/`: static hosting, Caddy Basic auth, project library API | Save on desktop, open on phone |
+| M3 | `server/`: static hosting, proxy Basic auth, project library API | Save on desktop, open on phone |
 | M4 | `server/`: relay; `web/`: transport swap behind an interface | Device list appears; BLE code deleted |
 | M5 | Firmware: WiFi + WebSocket client, upload, CRC, play | Full loop from phone to stick over WiFi |
 | M6 | Throughput measurement, longer durations, power/night polish | Measured upload rate shown in the UI |

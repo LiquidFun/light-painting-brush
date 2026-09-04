@@ -1,7 +1,7 @@
 // Static hosting for the SPA plus the library API (REQUIREMENTS §5.1).
 //
-// No auth here by design: Caddy enforces Basic auth on every route in front of
-// this process (§5.2), so the application never sees an unauthenticated request.
+// No auth here by design: the reverse proxy enforces Basic auth on every route in
+// front of this process (§5.2), so we never see an unauthenticated request.
 // Do not add a second, weaker check that could disagree with the first.
 
 import { createReadStream } from 'node:fs'

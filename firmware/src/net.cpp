@@ -334,7 +334,7 @@ void NetService::onDisconnected(const uint8_t* reason, size_t len) {
   // The library hands us the reason as a bare pointer and a length, so copy it
   // out before printing. It is the single most useful line in this log: a
   // refused handshake arrives here as "WebSocket handshake failed - HTTP 401"
-  // (wrong password) or "- HTTP 502" (Caddy is up, the relay process is not),
+  // (wrong password) or "- HTTP 502" (the proxy is up, the relay process is not),
   // and we were throwing all of it away.
   char why[64];
   if (reason && len > 0) {

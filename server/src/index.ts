@@ -1,8 +1,8 @@
 // Entry point. Three jobs and nothing else (REQUIREMENTS §5): serve the SPA,
 // relay between browsers and devices, store the shared project library.
 //
-// TLS and Basic auth belong to Caddy in front of this process, so this listens on
-// plain HTTP — bind it to localhost in production.
+// TLS and Basic auth belong to the reverse proxy in front of this process, so this
+// listens on plain HTTP — bind it to localhost in production.
 
 import { createServer } from 'node:http'
 import path from 'node:path'

@@ -16,12 +16,12 @@
 #define LS_RELAY_PORT 443
 #define LS_RELAY_PATH "/ws/device"
 
-// 1 for wss:// through Caddy, which is the deployment PROTOCOL.md describes. Set
-// to 0 only to talk to a plain-HTTP relay on your own bench.
+// 1 for wss:// through the reverse proxy, which is the deployment PROTOCOL.md
+// describes. Set to 0 only to talk to a plain-HTTP relay on your own bench.
 #define LS_RELAY_TLS 1
 
-// HTTP Basic auth, enforced by Caddy on every route. One shared password for every
-// stick, so rotating it means reflashing all of them.
+// HTTP Basic auth, enforced by the proxy on every route. One shared password for
+// every stick, so rotating it means reflashing all of them.
 #define LS_RELAY_USER "lightstick"
 #define LS_RELAY_PASSWORD "the-shared-password"
 

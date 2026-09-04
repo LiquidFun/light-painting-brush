@@ -117,9 +117,9 @@ cd web && npm run dev
 in the path any more. Designing, previewing, saving and exporting are never gated
 behind the network or a device.
 
-Deployment puts Caddy in front for TLS and one shared Basic auth password — see
-[`server/README.md`](server/README.md). Pushing to `main` deploys to
-`light.brutenis.net` once CI is green.
+Deployed, the relay sits behind a reverse proxy that terminates TLS and enforces
+one shared Basic auth password. It has no auth of its own and must never be
+exposed directly — see [`server/README.md`](server/README.md).
 
 ---
 
@@ -153,14 +153,12 @@ firmware/
   src/secrets.example.h     template for the gitignored secrets.h
 .github/workflows/
   ci.yml                    typecheck + build web, typecheck + smoke test server
-  deploy.yml                on green CI on main: build, rsync, restart the relay
 server/
   src/index.ts              http + websocket upgrade
   src/relay.ts              device registry, routing, streaming binary
   src/library.ts            shared project library, one JSON file each
   src/http.ts               static SPA hosting + /api/projects
   smoke.ts                  end-to-end test with a fake device and client
-  Caddyfile                 TLS + Basic auth
 web/
   src/model/                project, layers, colour, easing, persistence
   src/render/               layer compositing, patterns, images, payload, power

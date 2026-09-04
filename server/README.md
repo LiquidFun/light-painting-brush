@@ -25,7 +25,7 @@ npm start
 | Variable | Default | Meaning |
 |---|---|---|
 | `PORT` | `8080` | |
-| `HOST` | `127.0.0.1` | Bind to localhost in production; Caddy is the only thing that should reach it |
+| `HOST` | `127.0.0.1` | Bind to localhost in production; the proxy is the only thing that should reach it |
 | `DATA_DIR` | `server/data` | Library storage — one JSON file per project under `projects/` |
 | `STATIC_DIR` | `web/dist` | The built SPA |
 
@@ -49,46 +49,27 @@ cd ../web && npm run dev
 
 ## Deployment
 
-`Caddyfile` terminates TLS and enforces HTTP Basic auth on every route, both
-WebSocket endpoints included. This process implements no auth of its own and must
-never be exposed directly.
+**This process must not be exposed directly.** It implements no authentication of
+its own, by design (§5.2), and `PUT /api/projects/:id` will accept anything that
+reaches it. It has to sit behind a reverse proxy that terminates TLS and enforces
+auth on *every* route, both WebSocket endpoints included — the firmware expects
+HTTP Basic and sends credentials from its `secrets.h`. Bind it to
+`HOST=127.0.0.1` so the proxy is the only thing that can reach it.
 
-```sh
-caddy hash-password              # paste the hash into the Caddyfile
-sudo caddy run --config Caddyfile
-```
+No proxy or host config lives in this repo; it belongs to whatever manages the
+machine.
 
-Run the Node process under a supervisor (systemd unit, `Restart=always`) with
-`HOST=127.0.0.1`. If you write your own unit, do **not** set
-`MemoryDenyWriteExecute=` — V8 maps pages writable and executable for the JIT and
-node will abort at startup.
+Run the Node process under a supervisor (systemd unit, `Restart=always`). Two
+things to get right in a unit file:
 
-### The deployment this repo actually uses
+- Do **not** set `MemoryDenyWriteExecute=` — V8 maps pages writable and executable
+  for the JIT, and node aborts at startup.
+- Point `DATA_DIR` at a directory outside the deploy tree (systemd's
+  `StateDirectory=` is the easy answer), so redeploying with `rsync --delete`
+  cannot take the project library with it.
 
-`light.brutenis.net`, managed by ansible in a separate private repo, which owns
-the Caddy site, the `lightstick.service` unit on `127.0.0.1:8012`, the
-`deploy-lightstick` CI user and `/var/lib/lightstick` as the library directory.
-The `Caddyfile` here is the standalone equivalent, kept so this repo documents
-its own deployment requirement.
-
-`.github/workflows/` does the rest:
-
-| Workflow | Trigger | Does |
-|---|---|---|
-| `ci.yml` | every push and PR | typechecks and builds `web/`, typechecks `server/`, runs `npm run smoke` |
-| `deploy.yml` | CI succeeding on `main`, or `workflow_dispatch` | builds the SPA, rsyncs `server/` and `web/dist/`, `npm ci --omit=dev`, restarts the unit, checks it came up |
-
-One repo secret is required: **`DEPLOY_SSH_KEY`**, the private half of the key
-whose public half is in the ansible repo's
-`files/deploy-lightstick.authorized_keys`.
-
-```sh
-ssh-keygen -t ed25519 -f deploy_key -N "" -C "lightstick-deploy"
-```
-
-The deploy never touches the project library: it lives in `/var/lib/lightstick`
-under systemd's `StateDirectory=`, so `rsync --delete` on `/srv/lightstick` is
-safe.
+`.github/workflows/ci.yml` typechecks and builds `web/`, typechecks `server/`, and
+runs `npm run smoke` on every push and PR.
 
 ## Things worth knowing
 

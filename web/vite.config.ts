@@ -30,7 +30,7 @@ function sameOriginAssets(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), basicSsl(), sameOriginAssets()],
-  // In production the relay serves these files, so HTTPS comes from Caddy. In
+  // In production the relay serves these files, so HTTPS comes from the proxy. In
   // development basicSsl() serves a self-signed cert on 0.0.0.0, which is what the
   // legacy Web Bluetooth path needs (it requires a secure context) and what makes
   // a phone on the same network able to load the editor at all. The cert is

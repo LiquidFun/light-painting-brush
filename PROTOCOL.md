@@ -40,8 +40,8 @@ quantising to `u8`. The bytes on the wire are already in LED-linear space.
 ## 2. Connections
 
 Both sides open a WebSocket to the server over TLS. Authentication is HTTP Basic,
-enforced by Caddy in front of the application; the application implements no auth
-of its own and never sees an unauthenticated request.
+enforced by the reverse proxy in front of the application; the application
+implements no auth of its own and never sees an unauthenticated request.
 
 | Endpoint | Who | Credentials |
 |---|---|---|
