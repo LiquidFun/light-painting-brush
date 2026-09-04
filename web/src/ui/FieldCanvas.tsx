@@ -355,9 +355,13 @@ export function FieldCanvas(props: CanvasProps) {
       Math.round(linear[2] * 255),
     ]
     const erase = tool === 'eraser'
+    // `field.height`, not `field.height - 1`. The LED axis is an endpoint and the
+    // time axis is a cell centre — see rowAt() in render/field.ts. Writing dabs
+    // on the endpoint convention while the sampler reads on the cell convention
+    // is what made the last frame unpaintable.
     const to = {
       x: geom.xToU(p.x) * (project.ledCount - 1),
-      y: geom.yToV(p.y) * (field.height - 1),
+      y: geom.yToV(p.y) * field.height,
     }
     const from = drag.last ?? to
     const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y)))

@@ -171,6 +171,27 @@ function createKeyframeSampler(layer: KeyframeLayer, project: Project): Sampler 
   }
 }
 
+/**
+ * Raster row for a normalised time, for the two samplers that read a raster
+ * sized to the grid being evaluated.
+ *
+ * The two axes do not share a convention and must not be written as if they did.
+ * `u` is an endpoint: LED 0 sits at 0 and LED ledCount-1 sits at 1, so it maps
+ * onto `width - 1`. `v` is a cell centre: the evaluators hand out `y / height`,
+ * which reaches (height-1)/height and never 1, and FieldCanvas draws the field
+ * from `vToY(0) - rowH/2` to match. Mapping `v` onto `height - 1` the way `u` is
+ * mapped therefore squashed the whole time axis by one row — the last frame was
+ * unreachable, so a stroke painted on it never rendered and never reached the
+ * strip, and half the remaining rows drew one row low.
+ *
+ * `round`, not `floor`: `(y / height) * height` is not exactly `y` in floating
+ * point, and flooring 96.99999999999999 silently loses another row.
+ */
+function rowAt(v: number, height: number): number {
+  const y = Math.round(clamp01(v) * height)
+  return y < height ? y : height - 1
+}
+
 function createImageSampler(layer: ImageLayer, width: number, height: number): Sampler {
   const sample = getImage(layer.src, width, height, layer.fit, {
     rotation: layer.rotation,
@@ -185,12 +206,11 @@ function createImageSampler(layer: ImageLayer, width: number, height: number): S
   }
   const { data } = sample
   const xMax = width - 1
-  const yMax = height - 1
   // Samples are stored as bytes; the field works in 0..1.
   const S = 1 / 255
   return (u, v, out) => {
     const x = Math.round(clamp01(u) * xMax)
-    const y = Math.round(clamp01(v) * yMax)
+    const y = rowAt(v, height)
     const i = (y * width + x) * 4
     out[0] = data[i] * S
     out[1] = data[i + 1] * S
@@ -222,10 +242,9 @@ function createPaintSampler(layer: PaintLayer, width: number, height: number): S
   // Indexed against the surface, not the grid being sampled, so a coarse preview
   // reads the same authoritative pixels instead of forcing a second copy.
   const xMax = surface.width - 1
-  const yMax = surface.height - 1
   return (u, v, out) => {
     const x = Math.round(clamp01(u) * xMax)
-    const y = Math.round(clamp01(v) * yMax)
+    const y = rowAt(v, surface.height)
     const i = (y * surface.width + x) * 4
     const a = surface.data[i + 3] / 255
     if (a <= 0) {
@@ -378,7 +397,11 @@ export function evaluatePreview(project: Project, width: number, height: number)
   const data = new Float32Array(w * h * 3)
   const cell: RGB = [0, 0, 0]
   const uDiv = w > 1 ? w - 1 : 1
-  const vDiv = h > 1 ? h - 1 : 1
+  // `h`, not `h - 1`: the same cell-centre convention evaluateField uses, so a
+  // thumbnail is a coarse sample of the same picture rather than one stretched
+  // by a row. With `h - 1` a feature at the very end of the timeline showed up
+  // in the library panel and nowhere else.
+  const vDiv = h
 
   for (let y = 0; y < h; y++) {
     const row = y * w * 3
