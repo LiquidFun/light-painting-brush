@@ -1,5 +1,10 @@
 # Light Painting Stick
 
+![](./media/image1.jpg)
+
+![](./media/image2.jpg)
+
+
 A 1 m addressable LED bar for long-exposure light painting. Animations are designed
 in a browser, sent to an ESP32 over WiFi, held in RAM, and played back on a button
 press while the camera shutter is open.
@@ -92,6 +97,8 @@ sudo apt remove brltty
 ```
 
 ### Server and web app
+
+![](./media/website.png)
 
 ```sh
 cd web && npm install --include=dev && npm run build && cd ..
